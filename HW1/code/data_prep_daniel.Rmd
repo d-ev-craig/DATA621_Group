@@ -1,0 +1,152 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(mice)
+```
+
+Sources Referenced:
+- https://www.r-bloggers.com/2015/10/imputing-missing-data-with-r-mice-package/
+- https://www.gerkovink.com/miceVignettes/
+
+
+
+https://cran.r-project.org/mirrors.html
+```{r Load Data}
+test <- read_csv("..\\data\\moneyball-evaluation-data.csv")
+train <- read_csv("..\\data\\moneyball-training-data.csv")
+```
+
+Missing completely at random (MCAR) when the missingness mechanism is completely independent of the estimate of our parameter(s) of interest. Deletion will yield unbiased results.
+
+
+Missing at random (MAR) when the missingness mechanism is conditionally independent of the estimate of our parameter(s) of interest. In short, the data with complete cases are biased.
+
+
+Missing not at random (MNAR) when the missingness mechanism is associated with the estimate of our parameter(s) of interest
+
+```{r}
+percentMiss <- function(x){sum(is.na(x))/length(x)*100} # Creates percentage of missing values
+
+variable_pMiss <- apply(train,2,percentMiss) # runs on columns
+sample_pMiss <- apply(train,1,percentMiss) # runs on rows
+```
+
+```{r}
+variable_pMiss
+```
+|   We can see that most variables have low percentage miss rates. Two variables TEAM_BATTING_HBP and TEAM_BASERUN_CS have 91.6% and 33.9% missing rates which leads to a recommendation to remove at least TEAM_BATTING_HBP from the dataset. Should TEAM_BASERUN_CS be removed for having more than 25% of observations missing its value?
+
+```{r}
+sum(sample_pMiss > 50)
+```
+
+```{r Check Rows for Miss Data}
+
+#Filters for instances where the entire row is NA
+train <- train %>% 
+  filter(if_any(everything(), ~ !is.na(.))) #keep rows that have atleast one value that is not NA
+
+#if_any : https://www.tidyverse.org/blog/2021/02/dplyr-1-0-4-if-any/
+#         https://dplyr.tidyverse.org/reference/across.html
+
+```
+
+```{r Check Cols for Miss Data}
+
+#Filtering for instances where the entire column is NA
+
+not_all_na <- function(x) any(!is.na(x)) 
+# Create a function since where() only works with functions
+# !is.na(x) returns a vector of T/F if it is not an NA value
+# any() checks to see if any values in the vector are TRUE
+
+train_cleaned <- train %>% select(where(not_all_na)) # Selects only columns that are not completely NA
+
+```
+
+```{r Drop TB_HBP and Rename}
+
+train_cleaned <- train_cleaned %>% select (-TEAM_BATTING_HBP, -INDEX)
+
+colnames(train_cleaned) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+train_cleaned
+```
+```{r Miss Pattern}
+
+pattern <- md.pattern(train_cleaned, rotate.names = TRUE)
+
+pattern <- as.data.frame(pattern)
+
+pattern
+```
+
+|    Batting_HBP is missing for almost all observations and should be removed. There were no samples that had at least 50% of the variables missing, leading to the conclusion of keeping all observations. Only a maximum of 3 features are missing at a time. 3 features out of 14 is less than 50% of the feature count for a sample, so no observations need to be replaced.
+
+
+
+|    Imputation will use the MICE package and using the predictive mean modeling method to generate predictions
+
+#norm.predict (imputes based on the "best value" determined by linear reg)
+#mice.impute.norm.boot (imputes by log reg with bootstrap aggregation)
+#norm.nob (imputes without accounting for parameter uncertainty, Bat_SO looks bad)
+#norm (univariate missing data by Bayesian linear reg, looks "Ok")
+#mpmm (imputes multivariate incomplete data that has relationships like polynomials)
+#cart (imputes based on regression trees - Base_SO matches great)
+
+```{r MICE Impute, echo = FALSE}
+train_imputed <- mice(train_cleaned,method = "mpmm", m=5, maxit = 50, seed = 500, print = F)
+```
+
+```{r}
+summary(train_imputed)
+```
+
+```{r}
+train_imputed$imp$Bat_SO
+```
+
+
+Bat_HR+Bat_BB+Bat_SO+Base_SB+Base_CS+Pitch_H+Pitch_HR+Pitch_BB+Pitch_SO+Field_E+Field_DP
+```{r}
+xyplot(train_imputed, Wins ~ Base_SB+Bat_SO,  pch = c(1, 20), cex = c(1, 1.5))
+plot(train_imputed)
+densityplot(train_imputed)
+```
+
+
+```{r}
+stripplot(train_imputed, Bat_SO+Base_SB+Base_CS+Pitch_SO+Field_DP~.imp, pch=20, cex=2)
+```
+
+
+
+```{r}
+train_done <- complete(train_imputed,1)
+
+write_csv(train_done, "train_imputed.csv")
+
+```
+
+
+
+Example Code:
+
+```{r}
+imp <- mice(boys, maxit = 1)
+
+# xyplot: scatterplot by imputation number
+# observe the erroneous outlying imputed values
+# (caused by imputing hgt from bmi)
+xyplot(imp, hgt ~ age, pch = c(1, 20), cex = c(1, 1.5))
+
+# same, but label with missingness of wgt (four cases)
+xyplot(imp, hgt ~ age | .imp, na.group = wgt, pch = c(1, 20), cex = c(1, 1.5))
+```
+
