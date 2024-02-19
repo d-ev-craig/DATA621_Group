@@ -563,9 +563,9 @@ outs_imputed_ratios <- outs_imputes_1 %>%
 ## Write Data
 
 ```{r Write Imputed Data}
-write_csv(imputed_ratios, "imputed_ratios.csv")
-write_csv(outs_imputed_ratios, "outs_imputed_ratios.csv")
-write_csv(winsor_imputed_ratios, "winsor_imputed_ratios.csv")
-write_csv(Drop0_imputed_ratios,"Drop0_imputed_ratios.csv")
+write_csv(imputed_ratios, "../data/prepped_data/imputed_ratios.csv")
+write_csv(outs_imputed_ratios, "../data/prepped_data/outs_imputed_ratios.csv")
+write_csv(winsor_imputed_ratios, "../data/prepped_data/winsor_imputed_ratios.csv")
+write_csv(Drop0_imputed_ratios,"../data/prepped_data/Drop0_imputed_ratios.csv")
 
 ```
