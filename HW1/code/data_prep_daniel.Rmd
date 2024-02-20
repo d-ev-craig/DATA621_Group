@@ -31,7 +31,6 @@ Steps:
 
 https://cran.r-project.org/mirrors.html
 ```{r Load Data}
-test <- read_csv("..\\data\\moneyball-evaluation-data.csv")
 train <- read_csv("..\\data\\moneyball-training-data.csv")
 ```
 
@@ -394,6 +393,7 @@ trainBC_outs <- predict(preProcValues_outs, transforms) # pulling the transforme
 trainBC_outs <- data.frame(train_outs_drop,trainBC_outs) # re combining columns
 ```
 
+
 ```{r Before Trans}
 for (col_name in colnames(trainBC_outs)) {
   hist(trainBC_outs[[col_name]], main = col_name, xlab = col_name)
@@ -439,9 +439,6 @@ CART was used for Bat_SO and Pitch_SO as their distributions matched well. Base 
 ## Imputing Winsorized Data
 ```{r}
 #methods_vec_WinsorBC <- c("","","","","","","rf","pmm","pmm","","","","cart","","pmm") #Winsorized data methods
-
-
-
 
 train_imputed_WinsorBC <- mice(trainBC_winsor,method = "pmm", m=5, maxit = 50, seed = 500, print = F)
 
@@ -569,3 +566,97 @@ write_csv(winsor_imputed_ratios, "../data/prepped_data/winsor_imputed_ratios.csv
 write_csv(Drop0_imputed_ratios,"../data/prepped_data/Drop0_imputed_ratios.csv")
 
 ```
+
+
+
+```{r Testing Transformation}
+test <- read_csv("..\\data\\moneyball-evaluation-data.csv")
+test <- test %>% dplyr::select(-TEAM_BATTING_HBP, -INDEX)
+
+colnames(test) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+# separating the columns to ensure only they are transformed
+field_e <- test$Field_E 
+pitch_h <- test$Pitch_H
+
+# Transforming Test Data
+# Pulling lambda's used to transform the training data
+winsor_fe_lambda <- preProcValues_winsor$bc$winsor_field_e$lambda
+winsor_ph_lambda <- preProcValues_winsor$bc$winsor_pitch_h$lambda
+
+#### Winsor Section
+# Loading MASS section to use specific lambda value
+library(forecast)
+
+# Perform the Box-Cox transformation with the specified lambda
+test_win_field_e_trans <- BoxCox(field_e, winsor_fe_lambda)
+test_win_pitch_h_trans <- BoxCox(pitch_h, winsor_ph_lambda)
+
+
+# Access the transformed data
+field_e <- test_win_field_e_trans
+pitch_h <- test_win_pitch_h_trans
+
+# Join transformed columns together
+testBC_winsor <- data.frame(test, field_e,pitch_h)
+
+# Impute missing values
+testBC_winsor_imputed <- mice(testBC_winsor,method = "pmm", m=5, maxit = 50, seed = 500, print = F)
+
+# Pulling the datasets
+test_winsor_imputes_1 <- complete(testBC_winsor_imputed, 1)
+test_winsor_imputes_2 <- complete(testBC_winsor_imputed, 2)
+test_winsor_imputes_3 <- complete(testBC_winsor_imputed, 3)
+test_winsor_imputes_4 <- complete(testBC_winsor_imputed, 4)
+test_winsor_imputes_5 <- complete(testBC_winsor_imputed, 5)
+
+test_winsor_imputed_ratios <- test_winsor_imputes_1 %>%
+  mutate(Ratio_Bat_H_Pitch_H = Bat_H / Pitch_H,
+         Ratio_Bat_HR_Pitch_HR = Bat_HR / Pitch_HR,
+         Ratio_Bat_BB_Pitch_BB = Bat_BB / Pitch_BB,
+         Ratio_Bat_SO_Pitch_SO = Bat_SO / Pitch_SO
+         )
+
+# Export
+write_csv(test_winsor_imputed_ratios,"../data/prepped_data/test_winsor_imputed_ratios.csv")
+
+
+#### Outliers Dropped Section
+
+field_e <- test$Field_E
+pitch_h <- test$Pitch_H
+
+out_fe_lambda <- preProcValues_outs$bc$field_e$lambda
+out_ph_lambda <- preProcValues_outs$bc$pitch_h$lambda
+
+# Perform the Box-Cox transformation with the specified lambda
+test_out_field_e_trans <- BoxCox(field_e, out_fe_lambda)
+test_out_pitch_h_trans <- BoxCox(pitch_h, out_ph_lambda)
+
+# Join transformed columns together
+testBC_out <- data.frame(test, test_out_field_e_trans,test_out_pitch_h_trans)
+
+# Impute missing values
+testBC_out_imputed <- mice(testBC_out,method = "pmm", m=5, maxit = 50, seed = 500, print = F)
+
+# Pulling the datasets
+test_out_imputes_1 <- complete(testBC_out_imputed, 1)
+test_out_imputes_2 <- complete(testBC_out_imputed, 2)
+test_out_imputes_3 <- complete(testBC_out_imputed, 3)
+test_out_imputes_4 <- complete(testBC_out_imputed, 4)
+test_out_imputes_5 <- complete(testBC_out_imputed, 5)
+
+test_out_imputed_ratios <- test_out_imputes_1 %>%
+  mutate(Ratio_Bat_H_Pitch_H = Bat_H / Pitch_H,
+         Ratio_Bat_HR_Pitch_HR = Bat_HR / Pitch_HR,
+         Ratio_Bat_BB_Pitch_BB = Bat_BB / Pitch_BB,
+         Ratio_Bat_SO_Pitch_SO = Bat_SO / Pitch_SO
+         )
+
+# Export
+write_csv(test_out_imputed_ratios,"../data/prepped_data/test_out_imputed_ratios.csv")
+
+
+
+```
+
