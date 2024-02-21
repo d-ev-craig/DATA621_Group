@@ -32,6 +32,14 @@ Steps:
 https://cran.r-project.org/mirrors.html
 ```{r Load Data}
 train <- read_csv("..\\data\\moneyball-training-data.csv")
+
+set.seed(3456)
+trainIndex <- createDataPartition(train$INDEX, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train <- train[trainIndex,]
+trainEval  <- train[-trainIndex,]
 ```
 
 ```{r}
@@ -105,6 +113,16 @@ colnames(train_cleaned) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB",
 
 train_cleaned <- as.data.frame(train_cleaned)
 ```
+
+```{r Eval Set Cleaned}
+
+trainEval <- trainEval %>% select (-TEAM_BATTING_HBP, -INDEX)
+
+colnames(trainEval) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+trainEval <- as.data.frame(trainEval)
+```
+
 
 # Dropping Outliers Technique
 
@@ -323,26 +341,20 @@ preProcValues_0$bc
 trainBC_0
 ```
 
-
 ## BoxCox Transformation of Winsorized Data
 
 ```{r Winsor Transform}
 
-winsor_Field_E <- train_winsor$Field_E #separating the columns to ensure only they are transformed
-winsor_Pitch_H <- train_winsor$Pitch_H
+winsor_Field_E_trans <- train_winsor$Field_E #separating the columns to ensure only they are transformed
+winsor_Pitch_H_trans <- train_winsor$Pitch_H
 
-train_winsor <- subset(train_winsor, select = -Field_E) # Removing from dataframe to be joined in later
-train_winsor <- subset(train_winsor, select = -Pitch_H)
-
-transforms_winsor <- data.frame(winsor_field_e, winsor_pitch_h)
+transforms_winsor <- data.frame(winsor_Field_E_trans, winsor_Pitch_H_trans)
 
 preProcValues_winsor <- preProcess(transforms_winsor, method = "BoxCox") 
 
 trainBC_winsor <- predict(preProcValues_winsor, transforms_winsor) # pulling the transformed values
 
 trainBC_winsor <- data.frame(train_winsor,trainBC_winsor) #combining values into dataframe
-
-colnames(trainBC_winsor)[14:15] <- c("Field_E","Pitch_H")
 ```
 
 
@@ -399,7 +411,68 @@ for (col_name in colnames(trainBC_outs)) {
   hist(trainBC_outs[[col_name]], main = col_name, xlab = col_name)
 }
 ```
+## BoxCox Transformation of trainEval Data
+```{r}
+library(forecast)
+# Grabbing columns for transformation
+trainEval_Field_E_trans <- trainEval$Field_E
+trainEval_Pitch_H_trans <- trainEval$Pitch_H
 
+# Grabbing lambda values used on the training sets
+## Winsor Data
+winsor_fe_lambda <- preProcValues_winsor$bc$winsor_Field_E_trans$lambda
+winsor_ph_lambda <- preProcValues_winsor$bc$winsor_Pitch_H_trans$lambda
+## Outs Dropped Data
+out_fe_lambda <- preProcValues_outs$bc$field_e$lambda
+out_ph_lambda <- preProcValues_outs$bc$pitch_h$lambda
+
+# Transforming
+trainEval_win_field_e_trans <- BoxCox(trainEval_Field_E_trans, winsor_fe_lambda)
+trainEval_win_pitch_h_trans <- BoxCox(trainEval_Pitch_H_trans, winsor_ph_lambda)
+
+trainEval_out_field_e_trans <- BoxCox(trainEval_Field_E_trans, out_fe_lambda)
+trainEval_out_pitch_h_trans <- BoxCox(trainEval_Pitch_H_trans, out_ph_lambda)
+
+# Joining
+
+trainEvalBC_winsor <- data.frame(trainEval, trainEval_win_field_e_trans, trainEval_win_pitch_h_trans)
+trainEvalBC_outs <- data.frame(trainEval, trainEval_out_field_e_trans, trainEval_out_pitch_h_trans)
+
+# Renaming columns to match the training set column names
+colnames(trainEvalBC_winsor)[16:17] <- c("winsor_Field_E_trans","winsor_Pitch_H_trans")
+colnames(trainEvalBC_outs)[16:17] <- c("field_e","pitch_h")
+
+
+# MICE Impute
+trainEval_imputed_WinsorBC <- mice(trainEvalBC_winsor,method = "pmm", m=5, maxit = 50, seed = 500, print = F)
+trainEval_imputed_BC_outs <- mice(trainEvalBC_outs,method = "pmm", m=5, maxit = 50, seed = 500, print = F)
+
+# Pulling Out MICE Values
+
+trainEvalBC_winsor_imputes <- complete(trainEval_imputed_WinsorBC,1)
+trainEvalBC_outs_imputes <- complete(trainEval_imputed_BC_outs, 1)
+
+# Creating Ratios
+
+trainEval_winsor_imputed_ratios <- trainEvalBC_winsor_imputes %>%
+  mutate(Ratio_Bat_H_Pitch_H = Bat_H / Pitch_H,
+         Ratio_Bat_HR_Pitch_HR = Bat_HR / Pitch_HR,
+         Ratio_Bat_BB_Pitch_BB = Bat_BB / Pitch_BB,
+         Ratio_Bat_SO_Pitch_SO = Bat_SO / Pitch_SO
+         )
+
+trainEval_outs_imputed_ratios <- trainEvalBC_outs_imputes %>%
+  mutate(Ratio_Bat_H_Pitch_H = Bat_H / Pitch_H,
+         Ratio_Bat_HR_Pitch_HR = Bat_HR / Pitch_HR,
+         Ratio_Bat_BB_Pitch_BB = Bat_BB / Pitch_BB,
+         Ratio_Bat_SO_Pitch_SO = Bat_SO / Pitch_SO
+         )
+
+
+write_csv(trainEval_outs_imputed_ratios,"../data/prepped_data/trainEval_out_imputed_ratios.csv")
+write_csv(trainEval_winsor_imputed_ratios,"../data/prepped_data/trainEval_winsor_imputed_ratios.csv")
+
+```
 
 |    For non-winsorized data, It looks like if outliers can be removed or dealt with, only Pitch_H and Field_E would be needed. For winsorized data, every column was transformed, implying a decrease in normality.
 
@@ -573,7 +646,7 @@ write_csv(Drop0_imputed_ratios,"../data/prepped_data/Drop0_imputed_ratios.csv")
 test <- read_csv("..\\data\\moneyball-evaluation-data.csv")
 test <- test %>% dplyr::select(-TEAM_BATTING_HBP, -INDEX)
 
-colnames(test) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+colnames(test) <- c("Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
 
 # separating the columns to ensure only they are transformed
 field_e <- test$Field_E 
@@ -581,8 +654,9 @@ pitch_h <- test$Pitch_H
 
 # Transforming Test Data
 # Pulling lambda's used to transform the training data
-winsor_fe_lambda <- preProcValues_winsor$bc$winsor_field_e$lambda
-winsor_ph_lambda <- preProcValues_winsor$bc$winsor_pitch_h$lambda
+winsor_fe_lambda <- preProcValues_winsor$bc$winsor_Field_E_trans$lambda
+winsor_ph_lambda <- preProcValues_winsor$bc$winsor_Pitch_H_trans$lambda
+
 
 #### Winsor Section
 # Loading MASS section to use specific lambda value
@@ -591,7 +665,6 @@ library(forecast)
 # Perform the Box-Cox transformation with the specified lambda
 test_win_field_e_trans <- BoxCox(field_e, winsor_fe_lambda)
 test_win_pitch_h_trans <- BoxCox(pitch_h, winsor_ph_lambda)
-
 
 # Access the transformed data
 field_e <- test_win_field_e_trans
