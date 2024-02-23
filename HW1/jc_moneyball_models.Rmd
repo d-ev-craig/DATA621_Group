@@ -11,17 +11,414 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Required Libraries
 
-```{r library}
-
+```{r library, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(janitor)
+library(car)
+library(ggcorrplot)
+library(caret)
+library(kableExtra)
+library(Metrics)
 ```
 
 ## Import Data
 
-```{r import-data}
+We will be testing our data against two different imputation methods
 
+### outs_imputed_ratios 
+  - Outliers removed based on values outside of 1.5 * IQR bounds
+  - Kept fairly normal distributions
+  
+```{r import-outs, message=FALSE}
+outs_train <-
+  read_csv("data/prepped_data/outs_imputed_ratios.csv")
+
+head(outs_train)
+```
+
+### winsor_imputed_ratios
+  - Replaced outliers with 5th and 95th percentile values
+  - Some distributions became closer to uniform distributions
+
+```{r import-winsor, message=FALSE}
+winsor_train <- 
+  read_csv("data/prepped_data/winsor_imputed_ratios.csv")
+
+head(winsor_train)
+```
+
+## Building Multiple Linear Regression Models
+
+### Initial Modeling
+
+Looking at the columns to use as predictor variables against wins, let's compare similar statistics on both sides of a team's game with batters versus pitchers. 
+
+**Offensive (Batting Side)**
+  - Bat_H: # of hits the team collected (Singles, Doubles, Triples, Home Runs)
+  - Bat_HR: # of home runs hit (These are a guarantee of **AT LEAST** one run being scored for your team)
+  - Bat_BB: # of walks (Similar to a single as you reach first base)
+  - Bat_SO: # of strikeouts
+  
+**Defensive (Pitching Side)**
+  - Pitch_H: # of hits allowed against opponents
+  - Pitch_HR: # of home runs allowed (These are a guarantee of **AT LEAST** one run being scored against your team)
+  - Pitch_BB: # of walks 
+  - Pitch_SO: # of strikeouts
+
+In our training set for *outs_imputed_ratios* we obtain an $R{^2}_{adj} = 0.1941$, which accounts for 19.41% of the variance in *Wins* based on our predictor variables previously mentioned. Using a 95% confidence level, we have no statistically significant explanatory variables.  
+
+#### outs_imputed_ratios 
+
+```{r initial-outs-imputed, echo=FALSE}
+initial_outs_imputed <-
+  outs_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, 
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO)
+
+lm_mod_o1 <- lm(Wins ~ ., data = initial_outs_imputed)
+summary(lm_mod_o1)
+```
+
+In our training set for *winsor_imputed_ratios* we obtain an $R{^2}_{adj} = 0.2407$, which accounts for 24.07% of the variance in *Wins* based on our predictor variables previously mentioned. Using a 95% confidence level, we do have statistically significant explanatory variables (Bat_H, Bat_BB, Bat_SO, Pitch_BB, Pitch_SO). This training set $R{^2}_{adj}$ compared to the *outs_imputed_ratios* has a positive difference of $0.2407 - 0.1941 = 0.0466$
+
+#### winsor_imputed_ratios 
+
+```{r initial-winsor-imputed, echo=FALSE}
+initial_winsor_imputed <-
+  winsor_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, 
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO)
+
+lm_mod_w1 <- lm(Wins ~ ., data = initial_winsor_imputed)
+summary(lm_mod_w1)
+```
+
+### Adding Additional Statistics
+
+We will continue with the same statistics from our previous model, but include additional explanatory variables on each side of the team's game.
+
+**Offensive (Batting Side)**
+  - Bat_H: # of hits the team collected (Singles, Doubles, Triples, Home Runs)
+  - Bat_HR: # of home runs hit (These are a guarantee of **AT LEAST** one run being scored for your team)
+  - Bat_BB: # of walks (Similar to a single as you reach first base)
+  - Bat_SO: # of strikeouts
+  - **Base_SB**: # of stolen bases
+  - **Base_CS**: # of times caught stealing a base
+  
+**Defensive (Pitching Side)**
+  - Pitch_H: # of hits allowed against opponents
+  - Pitch_HR: # of home runs allowed (These are a guarantee of **AT LEAST** one run being scored against your team)
+  - Pitch_BB: # of walks 
+  - Pitch_SO: # of strikeouts
+  - **Field_E**: # of errors while fielding a ball
+  - **Field_DP**: # of double plays while fielding (This yields two consecutive outs on a single ball in play)
+
+
+In this model using the *outs_imputed_ratios* we get a change in the $R{^2}_{adj} = 0.3681$. This accounts for 36.81% of the variance in *Wins* based on using our additional predictor variables. Using a 95% confidence level, we now have statistically significant variables within the model (Bat_BB, Base_SB, Base_CS, Field_E, Field_DP). 
+
+#### outs_imputed_ratios 
+
+```{r add-initial-outs-imputed, echo=FALSE}
+add_initial_outs_imputed <-
+  outs_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP)
+
+lm_mod_o2 <- lm(Wins ~ ., data = add_initial_outs_imputed)
+summary(lm_mod_o2)
+```
+
+Using the *winsor_imputed_ratios* there is again an increase in the $R{^2}_{adj} = 0.3588$, where we can account for 36.81% of the variance in *Wins* based on using our additional predictor variables. Using a 95% confidence level, we also have added more statistically significant variables within the model (Bat_H, Bat_BB, Bat_SO, **Base_SB**, **Base_CS**, Pitch_BB, Pitch_SO, **Field_E**, **Field_DP**). In comparison of our training sets, both have a minor difference now with it's respective $R{^2}_{adj}$ ($0.3588 - 0.3681 = -0.0093$). However, the *winsor_imputed_ratios* provide more statistically significant variables. 
+
+#### winsor_imputed_ratios 
+
+```{r add-initial-winsor-imputed, echo=FALSE}
+add_initial_winsor_imputed <-
+  winsor_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP)
+
+lm_mod_w2 <- lm(Wins ~ ., data = add_initial_winsor_imputed)
+summary(lm_mod_w2)
+```
+
+### Ratio Comparisons
+
+- **Ratio_Bat_H_Pitch_H**: ratio of a team's total batting hits to their total pitching hits allowed.     
+- **Ratio_Bat_HR_Pitch_HR**: ratio of a team's total batting home runs to their total pitching home runs allowed.
+- **Ratio_Bat_BB_Pitch_BB**: ratio of a team's total batting walks to their total pitching walks given. 
+- **Ratio_Bat_SO_Pitch_SO**: ratio of a team's total batting strike outs to their total pitching strike outs.  
+
+We created ratios between the batters and pitchers on the same team to compare hits by batters to hits allowed by pitchers. These ratios may explain how a team manages to win more. When the ratios were added into both models, they provided minor changes to the $R{^2}_{adj}$ and in explaining the variance  *Wins*. This was further confirmed with a couple of simple linear regression models to prove their minimal effects on their own. As a result, these ratios will be ignored in future model building. 
+
+
+#### outs_imputed_ratios 
+
+```{r outs-imputed-ratios, echo=FALSE}
+ratio_outs_imputed <-
+  outs_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP, starts_with("Ratio"))
+
+lm_mod_o3 <- lm(Wins ~ ., data = ratio_outs_imputed)
+summary(lm_mod_o3)
+```
+
+**Simple Linear Regression**
+```{r simple-outs-imputed-ratios, echo=FALSE}
+ratio_outs_imputed <-
+  outs_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP, starts_with("Ratio"))
+
+lm_mod_o4 <- lm(Wins ~ Ratio_Bat_SO_Pitch_SO, data = ratio_outs_imputed)
+summary(lm_mod_o4)
+```
+
+#### winsor_imputed_ratios 
+
+```{r winsor-imputed-ratios, echo=FALSE}
+ratio_winsor_imputed <-
+  winsor_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP, starts_with("Ratio"))
+
+lm_mod_w3 <- lm(Wins ~ ., data = ratio_winsor_imputed)
+summary(lm_mod_w3)
+```
+
+**Simple Linear Regression**
+```{r simple-winsor-imputed-ratios, echo=FALSE}
+ratio_winsor_imputed <-
+  winsor_train |>
+  select(Wins, Bat_H, Bat_HR, Bat_BB, Bat_SO, Base_SB, Base_CS,
+         Pitch_H, Pitch_HR, Pitch_BB, Pitch_SO, Field_E, Field_DP, starts_with("Ratio"))
+
+lm_mod_w4 <- lm(Wins ~ Ratio_Bat_BB_Pitch_BB, data = ratio_winsor_imputed)
+summary(lm_mod_w4)
+```
+
+### Stepwise Regression
+
+This modeling portion will use stepwise regression that looks for the best predictors from the entire dataset that best explains the variation of our dependent variable (Wins). Our assumptions are that each of these variables play a role in the outcome of how a game could be won. The criteria used is the AIC (Akaike information criterion) that iterates through various models with our predictors and helps determine the best overall fitted model to the data and how complex it can become. 
+
+The results show that our *outs_imputed_ratios* training set has an $R{^2}_{adj} = 0.4023$ compared to the *winsor_imputed_ratios* training set having $R{^2}_{adj} = 0.3749$. We can see that both models contain all statistically significant predictors within a 95% confidence level. At a stricter confidence level, using *outs_imputed_ratio* reaches a 99% confidence level for our predictors, while also utilizing less variables in its model.
+
+#### outs_imputed_ratios 
+```{r outs-stepwise, echo=FALSE}
+step_outs_train <- 
+  outs_train |>
+  select(!starts_with("Ratio"))
+
+step_intercept <- lm(Wins ~ 1, data = step_outs_train)
+step_variables <- lm(Wins ~ ., data = step_outs_train)
+
+out_step_both_dir <- step(step_intercept, direction='both', scope=formula(step_variables), trace=0)
+
+summary(out_step_both_dir)
+```
+
+#### winsor_imputed_ratios 
+
+```{r winsor-stepwise, echo=FALSE}
+step_winsor_train <- 
+  winsor_train |>
+  select(!starts_with("Ratio"))
+
+
+step_intercept <- lm(Wins ~ 1, data = step_winsor_train)
+step_variables <- lm(Wins ~ ., data = step_winsor_train)
+
+winsor_step_both_dir <- step(step_intercept, direction='both', scope=formula(step_variables), trace=0)
+
+summary(winsor_step_both_dir)
+```
+
+## Coefficient Interpretations
+
+Our coefficients for our predictor variables are quite difficult to interpret given the different scales. Each predictor column will be divided by 100 to scale down large values in comparison to each *Win*. This means that coefficient values we get for our predictor variables will be based for every 100 of said variable.
+
+#### outs_imputed_ratios 
+```{r scaling-outs, echo=FALSE}
+scale2 <- function(x, na.rm = FALSE) (x / 100)
+
+scale_step_outs_train <-
+  step_outs_train %>%
+  mutate_at(vars(-("Wins")), scale2)
+
+step_intercept <- lm(Wins ~ 1, data = scale_step_outs_train)
+step_variables <- lm(Wins ~ ., data = scale_step_outs_train)
+
+scale_out_step_both_dir <- step(step_intercept, direction='both', scope=formula(step_variables), trace=0)
+
+summary(scale_out_step_both_dir)
+```
+
+#### winsor_imputed_ratios 
+
+```{r scaling-winsor, echo=FALSE}
+scale_step_outs_train <-
+  step_winsor_train %>%
+  mutate_at(vars(-("Wins")), scale2)
+
+step_intercept <- lm(Wins ~ 1, data = scale_step_outs_train)
+step_variables <- lm(Wins ~ ., data = scale_step_outs_train)
+
+scale_winsor_step_both_dir <- step(step_intercept, direction='both', scope=formula(step_variables), trace=0)
+
+summary(scale_winsor_step_both_dir)
+```
+
+## Comparing Stepwise Regression Models to Test Data
+
+
+### Checking for Multicollinearity 
+
+Using a Variance Inflation Factor (VIF), this will help us measure the severity of multicollinearity in our models. A VIF > 10 can be considered highly correlated and as it decreases our concerns of multicollinearity decreases.  
+
+Comparing both models VIF's, we can see that the *outs_imputed_ratios* set significantly has less multicollinearity in comparison to the *winsor_impute_outs* set.
+
+#### outs_imputed_ratios 
+
+```{r out-vif, echo=FALSE}
+kbl(vif(scale_out_step_both_dir), col.names = "VIF") |>
+  kable_styling()
+```
+
+#### winsor_imputed_ratios 
+```{r winsor-vif, echo=FALSE}
+kbl(vif(scale_winsor_step_both_dir), col.names = "VIF") |>
+  kable_styling()
 ```
 
 
+### Checking for Linearity, Normality and Heteroscedasticity
 
+#### outs_imputed_ratios 
 
+- **Residuals vs Fitted**: We generally see a horizontal line in this plot which is an indication of a linear relationship
+- **Normal Q-Q**: We see our residuals following the straight line showing our residuals are normally distributed
+- **Scale-Location**: There is a slight downward parabolic curve which indicates some heteroscedasticity
+- **Residuals vs Leverage**: We see one high leverage points to the right of our graph. 
 
+```{r assumptions-out, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(scale_out_step_both_dir)
+```
+
+#### winsor_imputed_ratios 
+
+- **Residuals vs Fitted**: There is some bend in our graph showing some concern of linearity. 
+- **Normal Q-Q**: We mainly see our residuals following the straight line showing our residuals are mostly normally distributed, even with the tails fanning outward
+- **Scale-Location**: There is a decreasing log curve which indicates some minor heteroscedasticity as it is coming from two points 
+- **Residuals vs Leverage**: We see a few of high leverage points to the right of our graph.
+
+```{r assumptions-winsor, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(scale_winsor_step_both_dir)
+```
+
+### Test Training Models and Compare RMSE and MAE
+
+Now we will finally compare how both training sets work with our test sets. This will look at both the Root Mean Squared Error and the Mean Absolute Error of our predictions to the actual results
+
+```{r test-out, message=FALSE, , echo=FALSE}
+test_df <-
+  read_csv("data/prepped_data/trainEval_out_imputed_ratios.csv") %>%
+  mutate_at(vars(-("Wins")), scale2)
+```
+
+```{r predict-out, echo=FALSE}
+
+predictions <-
+  predict(scale_out_step_both_dir, test_df)
+
+```
+
+```{r rmse-mae-out, echo=FALSE}
+out_rmse <- RMSE(predictions, test_df$Wins)
+out_mae <- mae(test_df$Wins,predictions)
+```
+
+```{r test-winsor, message=FALSE, echo=FALSE}
+test_df <-
+  read_csv("data/prepped_data/trainEval_winsor_imputed_ratios.csv") %>%
+  mutate_at(vars(-("Wins")), scale2)
+```
+
+```{r predict-winsor, echo=FALSE}
+predictions <-
+  predict(scale_winsor_step_both_dir, test_df)
+```
+
+```{r rmse-mae-winsor, echo=FALSE}
+winsor_rmse <- RMSE(predictions, test_df$Wins)
+winsor_mae <- mae(test_df$Wins, predictions)
+```
+
+```{r combine-results}
+
+results <- tibble(set = c("Out", "Winsor"), 
+                  rmse = c(out_rmse, winsor_rmse), 
+                  mae = c(out_mae, winsor_mae), 
+                  adj_r2 = c(summary(scale_out_step_both_dir)$adj.r.squared, summary(scale_winsor_step_both_dir)$adj.r.squared))
+results
+
+```
+
+## Evaluation Sets
+
+Run against our evaluation sets, round *Wins* to closest number or for any values outside of 0-162, to either 0 or 162
+
+### Out
+
+```{r eval-out, message=FALSE, , echo=FALSE}
+eval_df <-
+  read_csv("data/prepped_data/test_out_imputed_ratios.csv")
+
+out_predictions <-
+  tibble(Wins = predict(scale_out_step_both_dir, test_df)) |>
+  mutate(Wins_round = case_when(Wins < 0 ~ 0,
+                                Wins > 162 ~ 162,
+                                Wins == 0 | Wins < 163 ~ round(Wins, 0)))
+
+out_predictions
+```
+
+```{r eval-out-export, echo=FALSE}
+
+write_csv(out_predictions, "jc_out_predictions.csv")
+
+```
+
+### Winsor
+
+```{r eval-winsor, message=FALSE, echo=FALSE}
+eval_df <-
+  read_csv("data/prepped_data/test_winsor_imputed_ratios.csv")
+
+winsor_predictions <-
+  tibble(Wins = predict(scale_winsor_step_both_dir, test_df)) |>
+  mutate(Wins_round = case_when(Wins < 0 ~ 0,
+                                Wins > 162 ~ 162,
+                                Wins == 0 | Wins < 163 ~ round(Wins, 0)))
+
+winsor_predictions
+```
+
+```{r eval-winsor-export, echo=FALSE}
+write_csv(winsor_predictions, "jc_winsor_predictions.csv")
+
+```
+
+## Model Intepretations
+
+Given the following:
+  - less complexity of our model
+  - finding our best $R{^2}_{adj}$ in comparison to the RMSE and MAE and 
+  - validating our linear regression assumptions
+
+using the *outs_imputed_ratios* training set and the stepwise regression model it created looks to be the best one. 
+
+$\widehat{y} = b_0 + b_1 + b_2 + b3$
