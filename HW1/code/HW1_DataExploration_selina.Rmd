@@ -1,0 +1,102 @@
+###Data 621 HW 
+#Noori Selina*
+
+**Overview:**
+In this homework assignment, you will explore, analyze and model a data set containing approximately 2200 records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record has the performance of the team for the given year, with all of the statistics adjusted to match the performance of a 162 game season.
+
+We have been given a dataset with 2276 records summarizing a major league baseball team’s season. The records span 1871 to 2006 inclusive. All statistics have been adjusted to match the performance of a 162 game season.
+
+Your objective is to build a multiple linear regression model on the training data to predict the number of wins for the team. You can only use the variables given to you (or variables that you derive from the variables provided).
+
+**Data Exploration**
+Loading the data sets
+
+
+```{r}
+training_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-training-data.csv")
+evaluation_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-evaluation-data.csv")
+
+head(training_data)
+head(evaluation_data)
+```
+
+This data set describes baseball team statistics between the years of 1871 to 2006. The dataset contains 2,276 quantitative observations, documenting pitching, batting, and fielding performances across seventeen variables. 
+
+```{r}
+dim(training_data)
+```
+
+Listing the type of data for each of the attributes. This output indicates that all attributes in the `training_data` dataset are of integer type.
+```{r}
+# list types for each attribute
+sapply(training_data, class)
+```
+
+Providing the summary of our data set by using the summary() function.
+
+These summary statistics provide insights into the distribution and range of values for each attribute in the dataset. For example, the 'TEAM_BATTING_H' attribute has a minimum value of 891 and a maximum value of 2554, indicating a wide range of batting hits among the teams. Additionally, the mean 'TARGET_WINS' value of approximately 80.79 suggests that teams, on average, achieve around 81 wins in a season. These statistics help us understand the spread and central tendency of the data, which is essential for further analysis and modeling.
+```{r}
+summary(training_data)
+```
+
+***Visualizations**
+Visualizing the data allows us to see how the data is distributed. Certain variables exhibit approximately normal distributions, while others display bimodal or skewed distributions, with some showing extreme skewness, particularly the variables related to pitching. This distribution variance indicates the importance of giving consideration to certain variables to ensure they meet the normality assumptions required for subsequent modeling techniques.
+```{r}
+library(ggplot2)
+library(tidyr)
+
+training_data %>%
+  gather(key = "variable", value = "value") %>%  
+  ggplot(aes(x = value)) + 
+  geom_density(fill = 'pink') + 
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5))  # Adjust the size as needed
+```
+
+Box plots: The box plot helps us see how the data is spread out and if there are any outliers. 
+
+```{r}
+library(ggplot2)
+library(tidyr)
+
+data_long <- training_data %>% 
+  gather(key = "Variable", value = "Value")  
+
+# Create individual box plots for each variable
+ggplot(data_long, aes(x = "", y = Value)) +  
+  geom_boxplot(fill = "lightblue") +
+  facet_wrap(~ Variable, scales = "free") + 
+  labs(x = NULL, y = "Value") +  
+  theme(strip.text = element_text(size = 5))  
+
+
+```
+**Correlation**
+The correlation analysis highlights some interesting observations:
+
+- It's surprising to find a strong correlation between the number of home runs pitched and batted, as these are typically seen as advantages for opposing teams.
+- The variable "TEAM_BATTING_H," representing the number of base hits, shows the highest correlation with the target variable "TARGET_WINS," which makes sense as more hits provide more scoring opportunities.
+- Batting doubles display a stronger correlation with wins compared to batting home runs or triples, possibly because doubles occur more frequently and offer more scoring opportunities.
+- These insights highlight how different batting statistics relate to team success in baseball.
+```{r}
+library(ggcorrplot)
+q <- cor(training_data)
+ggcorrplot(q, type = "upper", outline.color = "white",
+           ggtheme = theme_classic,
+           colors = c("pink", "white", "lightblue"),
+           lab = TRUE, show.legend = FALSE, tl.cex = 8, lab_size = 3) 
+```
+
+
+***Missing data***
+
+It's important to consider missing data values, as they can influence our results. Specifically, variables such as TEAM_BASERUN_CS and TEAM_BATTING_HBP have a significant number of missing values, which might need to be handled differently during our analysis.
+```{r}
+missing_counts <- colSums(is.na(training_data))
+
+cat("Missing Data:\n")
+for (variable in names(missing_counts)) {
+  cat("*", variable, ":", missing_counts[variable], "missing values\n")
+}
+```
+

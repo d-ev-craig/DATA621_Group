@@ -87,6 +87,10 @@ sum(sample_pMiss > 50)
 train <- train %>% 
   filter(if_any(everything(), ~ !is.na(.))) #keep rows that have atleast one value that is not NA
 
+
+# Filters for any row that contains 0 in as a value
+nrow(train %>% filter(if_any(everything(), ~ . == 0)))
+
 #if_any : https://www.tidyverse.org/blog/2021/02/dplyr-1-0-4-if-any/
 #         https://dplyr.tidyverse.org/reference/across.html
 
@@ -107,18 +111,18 @@ train_cleaned <- train %>% select(where(not_all_na)) # Selects only columns that
 
 ```{r Drop TB_HBP and Rename}
 
-train_cleaned <- train_cleaned %>% select (-TEAM_BATTING_HBP, -INDEX)
+train_cleaned <- train_cleaned %>% select (-TEAM_BATTING_HBP)
 
-colnames(train_cleaned) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+colnames(train_cleaned) <- c("INDEX","Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
 
 train_cleaned <- as.data.frame(train_cleaned)
 ```
 
 ```{r Eval Set Cleaned}
 
-trainEval <- trainEval %>% select (-TEAM_BATTING_HBP, -INDEX)
+trainEval <- trainEval %>% select (-TEAM_BATTING_HBP)
 
-colnames(trainEval) <- c("Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+colnames(trainEval) <- c("INDEX","Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Base_CS","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
 
 trainEval <- as.data.frame(trainEval)
 ```
@@ -149,7 +153,17 @@ limits <- lapply(train_cleaned, calc_outliers)
 # Convert list to dataframe
 limits <- do.call(rbind, limits)
 
+limits
+
 ```
+
+```{r Viewing Outliers}
+train_cleaned %>%
+  filter(Bat_H < 1152 | Bat_H > 1769 | is.na(Bat_H))
+
+```
+
+
 ```{r Filtering Based on Limits}
 
 train_outs_drop <- train_cleaned
@@ -213,13 +227,18 @@ for (col_name in colnames(train_outs_drop)) {
 
 ```
 
+```{r}
+
+```
+
+
 
 # Winsorized Data 
 
 ```{r Winsorize the Data}
 
 Wins <- train_cleaned$Wins
-train_winsor <- train_cleaned[-1] # removing wins to avoid winsorizing them
+train_winsor <- train_cleaned[-2] # removing wins to avoid winsorizing them
 
 for (col in colnames(train_winsor[-1])) {
   train_winsor[[col]] <- Winsorize(train_winsor[[col]], na.rm = TRUE)
@@ -469,7 +488,7 @@ trainEval_outs_imputed_ratios <- trainEvalBC_outs_imputes %>%
          )
 
 
-write_csv(trainEval_outs_imputed_ratios,"../data/prepped_data/trainEval_out_imputed_ratios.csv")
+  write_csv(trainEval_outs_imputed_ratios,"../data/prepped_data/trainEval_out_imputed_ratios.csv")
 write_csv(trainEval_winsor_imputed_ratios,"../data/prepped_data/trainEval_winsor_imputed_ratios.csv")
 
 ```
@@ -730,6 +749,12 @@ test_out_imputed_ratios <- test_out_imputes_1 %>%
 write_csv(test_out_imputed_ratios,"../data/prepped_data/test_out_imputed_ratios.csv")
 
 
+summary(test_out_imputed_ratios)
+```
 
+```{r}
+summary(test)
+summary(winsor_imputed_ratios)
+summary(outs_imputed_ratios)
 ```
 
