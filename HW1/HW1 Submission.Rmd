@@ -577,10 +577,21 @@ for (col in names(evalBC_winsor)) {
 
 ```
 
-Describe how you have transformed the data by changing the original variables or creating new variables. If you 
-did transform the data or create new variables, discuss why you did this. Here are some possible transformations.
-a. Fix missing values (maybe with a Mean or Median value)
+```{r Export Final Data}
+library(readr)
+write_csv(trainBC_outs_drop,"../data/prepped_data_2/trainBC_outs_drop.csv")
+write_csv(evalBC_outs_drop,"../data/prepped_data_2/evalBC_outs_drop.csv")
 
-c. Transform data by putting it into buckets
-d. Mathematical transforms such as log or square root (or use Box-Cox)
-e. Combine variables (such as ratios or adding or multiplying) to create new variables
+write_csv(trainBC_winsor,"../data/prepped_data_2/trainBC_winsor.csv")
+write_csv(evalBC_winsor,"../data/prepped_data_2/evalBC_winsor.csv")
+
+
+```
+
+
+## Data Modeling
+
+```{r}
+
+```
+
