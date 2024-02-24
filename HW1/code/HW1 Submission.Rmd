@@ -1,0 +1,586 @@
+---
+title: "HW1_Report"
+author: "Daniel Craig"
+date: "2024-02-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# HW 1 Baseball Metrics
+# Selina Noori, Gavriel Steinmitz-Silber, John Cruz, Shaya Engelman
+  
+  
+  
+## Data Exploration
+
+### Variable Summary
+
+
+```{r}
+training_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-training-data.csv")
+evaluation_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-evaluation-data.csv")
+```
+
+|    This data set describes baseball team statistics between the years of 1871 to 2006. The dataset contains 2,276 quantitative observations, documenting pitching, batting, and fielding performances across 17 variables. A quick explanation of each variable is below with their expected impact on predicting wins for a baseball team. All variables were numeric.
+
+```{r pressure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+knitr::include_graphics("C:/Users/dcrai/source/repos/DATA621_Group/HW1/figs/variables.png")
+```
+
+|    A quick look at distributions with histograms and boxplots reveal a few alarming takeaways:
+|       *TEAM_FIELDING_E: Numerous severe outliers
+|       *TEAM_PITCHING_BB: Numerous severe outliers
+|       *TEAM_PITCHING_H: Numerous severe outliers
+|       *TEAM_PITCHING_SO: Numerous severe outliers
+|       *TEAM_BATTING_H: Some severe outliers
+|       *TEAM_BASERUN_SB: Some outliers
+|       *TEAM_BATTING_3B Some outliers
+/n
+/n
+Outliers are detrimental to a model's ability to predict due to their over-centralizing nature and weight a multiple linear regression model attributes to those observations when predicting.
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+training_data %>% select(-INDEX) %>%
+  gather(key = "variable", value = "value") %>%  
+  ggplot(aes(x = value)) + 
+  geom_density(fill = 'gray') + 
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5))  # Adjust the size as needed
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+
+data_long <- training_data %>% 
+  gather(key = "Variable", value = "Value")  
+
+# Create individual box plots for each variable
+ggplot(data_long, aes(x = "", y = Value)) +  
+  geom_boxplot(fill = "lightblue") +
+  facet_wrap(~ Variable, scales = "free") + 
+  labs(x = NULL, y = "Value") +  
+  theme(strip.text = element_text(size = 5))  
+```
+
+### Zero Values
+|    Upon further inspection of the data, many records contained 0's instead of NA's as recorded metrics, which were judged by the analysts as unreasonable values. There was also skepticism in whether the outlier values were reasonable or should be treated as errors. Zero values were replaced by NAs for imputation.
+
+### Missing Data
+|    Most columns were not missing data, two columns in particular stand out. TEAM_BASERUN_CS is missing 772 or 33.9% of values. TEAM_BATTING_HBP is missing 2085 or 91.6% of of values.
+```{r}
+missing_counts <- colSums(is.na(training_data))
+
+cat("Missing Data:\n")
+for (variable in names(missing_counts)) {
+  cat("*", variable, ":", missing_counts[variable], "missing values\n")
+}
+```
+```{r}
+percentMiss <- function(x){sum(is.na(x))/length(x)*100} # Creates percentage of missing values
+
+variable_pMiss <- apply(training_data,2,percentMiss) # 2 = runs on columns
+sample_pMiss <- apply(training_data,1,percentMiss) # 1 = runs on rows
+```
+
+```{r}
+variable_pMiss
+```
+```{r}
+sum(sample_pMiss > 50)
+```
+|    No rows were missing more than 50% of their values meaning no rows needed removal. TEAM_BASERUN_CS and TEAM_BATTING_HBP both exceeded 25% of observations missing values at 33.96% and 91.6%. Both had little correlation to TARGET_WINS, although had moderate correlation to other variables as will be seen in the next section.
+
+
+### Correlation
+|    Correlations between TARGET_WINS and the other variables are generally weak, with the strongest being with TEAM_BATTING_H with a positive 39% rating as expected. Notable negative correlations were limited to TEAM_PITCHING_E at -18% and TEAM_PITCHING_H at -11%. Surprisingly, TEAM_PITCHING_HR was very slightly positively correlated to target wins at 19% which was unexpected. At a glance, the overall correlations of a team's batting related metrics are stronger than the metrics expected to be related to a negative effect. This may suggest that baseball play rewards batting more than not making errors or decreasing the enemy team's abilities after a certain amount.
+
+```{r}
+library(ggcorrplot)
+q <- cor(training_data , use="pairwise.complete.obs")
+ggcorrplot(q, type = "upper", outline.color = "white",
+           ggtheme = theme_classic,
+           colors = c("pink", "white", "lightblue"),
+           lab = TRUE, show.legend = FALSE, tl.cex = 5, lab_size = 2) 
+```
+
+/n
+/n
+
+## Data Preparation
+
+|    The four main categories that preparation targeted were zero values, missing data, outliers, and skewness. Before any transformations, the training dataset was split on a 70/30 ratio to create a test data set to test models on. TEAM_BASERUN_CS and TEAM_BATTING_HBP are both dropped due to crossing a threshold of 25% missing data used as a general benchmark for removal. Zero values were replaced with NA (Not Applicable) values for imputation.  Any observations that passed a threshold of 50% missing data were dropped as imputation is unreliable with so little data. A BoxCox transformation, centering, and scaling were all performed to help reduce the effect of outliers.
+
+
+|    Outliers were dealt with in two ways for testing. Many of the outliers break historical records and could be considered errors, but without contact with those that gathered the data this cannot be confirmed if they were treated as errors per historical records a large portion of data (roughly 30%) would be dropped. Instead, two methods were used to diminish impact of outliers. The first method was to drop values greater or smaller than 1.5 times the Interquartile Range (IQR) of data. The IQR is the distance between the 25th and 75th percentiles of a data's distribution, effectively holding the majority of observations within it. The second method was to Winsorize values outside 1.5 times the IQR by replacing the outlier with a value in the 5th or 95th percentile of the distribution. Imputation for the dataset where outliers were dropped used mean imputation, except for columns TEAM_BATTING_HR, TEAM_BATTING_SO, TEAM_PITCHING_HR, and TEAM_PITCHING_SO where median imputation was used due to their less-normal behavior. Median imputation should deviate less from a distribution when non-normal.
+
+
+
+```{r Training Split}
+library(caret)
+# Splitting training data into a testing and eval dataset
+set.seed(3456)
+trainIndex <- createDataPartition(training_data$INDEX, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train_data <- training_data[trainIndex,]
+eval_data <- training_data[-trainIndex,]
+
+```
+
+
+```{r Dropping Zeros}
+# Replacing Zeros with NA
+no_zeros_train <- train_data %>%
+  select(-TEAM_BASERUN_CS, -TEAM_BATTING_HBP) %>%
+  mutate(across(everything(), ~ifelse(. == 0, NA, .)))
+
+no_zeros_eval <- eval_data %>%
+  select(-TEAM_BASERUN_CS, -TEAM_BATTING_HBP) %>%
+  mutate(across(everything(), ~ifelse(. == 0, NA, .)))
+
+
+# function to find rows with too many zeros
+drop_rows_with_too_many_miss <- function(df) {
+  sample_pMiss_no_zeros <- apply(df,1,percentMiss) #check for rows with too many zeros
+  if (nrow(df[sample_pMiss_no_zeros >50,] == 0) == 0) { #check if the resulting dataframe is 0 length
+    df <- df #overwrite with same data if it is, aka no rows need to be removed
+  } 
+  else { #if there are rows with too many zeros (50% threshold)
+    indexes_to_drop <- df[sample_pMiss_no_zeros >50,]$INDEX 
+    df %>% filter(INDEX != indexes_to_drop) #drop those indexes
+  }
+}
+
+no_zeros_train <- drop_rows_with_too_many_miss(no_zeros_train)
+
+no_zeros_eval <- drop_rows_with_too_many_miss(no_zeros_eval)
+
+```
+
+```{r Calculating Limits}
+# Limits were established using the entirety of the training data set, not per split
+
+calc_outliers <- function(column) { # Calculates the quantiles of the column
+  Q1 <- quantile(column, 0.25, na.rm = TRUE)
+  Q3 <- quantile(column, 0.75, na.rm = TRUE)
+  
+  # Calculates IQR
+  IQR_val <- Q3 - Q1
+  
+  # Calculates the Outlier benchmark
+  lower_limit <- Q1 - 1.5 * IQR_val
+  upper_limit <- Q3 + 1.5 * IQR_val
+  
+  # Store Limits
+  data.frame(lower_limit = lower_limit, upper_limit = upper_limit)
+}
+
+# Apply calculate_outlier_limits function to each column
+limits <- lapply(training_data, calc_outliers)
+
+# Convert list to dataframe
+limits <- do.call(rbind, limits)
+
+
+```
+
+```{r Re-name Columns + Drop Outliers}
+
+original_cols <- colnames(no_zeros_train) #Saving column names just in case
+
+colnames(no_zeros_train) <- c("INDEX","Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+# Dropping Outliers
+
+train_outs_drop <- no_zeros_train #Creating New DataFrame for the Transformation
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Bat_H >1152 | Bat_H < 1769 | is.na(Bat_H))
+paste0("Bat_H: ", row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop) # Resetting Row Count variable to reflect after removal
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Bat_2B > 111 | Bat_2B < 371 | is.na(Bat_2B))
+paste0("Bat_2B: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>% # Negative values are ignored
+  filter(Bat_3B < 130 | is.na(Bat_3B)) 
+paste0("Bat_3B: ", row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Bat_HR < 304 | is.na(Bat_HR)) 
+paste0("Bat_HR: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Bat_BB > 257 | Bat_BB < 773 | is.na(Bat_BB))
+paste0("Bat_BB: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Bat_SO < 1503 | is.na(Bat_SO)) 
+paste0("Bat_SO: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Base_SB < 291 | is.na(Base_SB)) 
+paste0("Base_SB: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Pitch_H > 1023 | Pitch_H < 2078 | is.na(Pitch_H) )
+paste0("Pitch_H: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Pitch_HR < 300 | is.na(Pitch_HR))
+paste0("Pitch_HR: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Pitch_BB > 274 | Pitch_BB < 813 | is.na(Pitch_BB))
+paste0("Pitch_BB: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Pitch_SO > 84 | Pitch_SO < 1498 | is.na(Pitch_SO))
+paste0("Pitch_SO: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Field_E < 432 | is.na(Field_E))
+paste0("Field_E: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+train_outs_drop <- train_outs_drop %>%
+  filter(Field_DP > 81 | Field_DP < 214 | is.na(Field_DP))
+paste0("Field_DP: ",row_count - nrow(train_outs_drop))
+row_count <- nrow(train_outs_drop)
+
+```
+
+```{r Test Outliers Drop}
+
+colnames(no_zeros_eval) <- c("INDEX","Wins","Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+# Dropping Outliers
+
+eval_outs_drop <- no_zeros_eval #Creating New DataFrame for the Transformation
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Bat_H > 1152 | Bat_H < 1769 | is.na(Bat_H))
+paste0("Bat_H: ", row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop) # Resetting Row Count variable to reflect after removal
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Bat_2B > 111 | Bat_2B < 371 | is.na(Bat_2B))
+paste0("Bat_2B: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>% # Negative values are ignored
+  filter(Bat_3B < 130 | is.na(Bat_3B)) 
+paste0("Bat_3B: ", row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Bat_HR < 304 | is.na(Bat_HR)) 
+paste0("Bat_HR: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Bat_BB > 257 | Bat_BB < 773 | is.na(Bat_BB))
+paste0("Bat_BB: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Bat_SO < 1503 | is.na(Bat_SO)) 
+paste0("Bat_SO: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Base_SB < 291 | is.na(Base_SB)) 
+paste0("Base_SB: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Pitch_H > 1023 | Pitch_H < 2078 | is.na(Pitch_H) )
+paste0("Pitch_H: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Pitch_HR < 300 | is.na(Pitch_HR))
+paste0("Pitch_HR: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Pitch_BB > 274 | Pitch_BB < 813 | is.na(Pitch_BB))
+paste0("Pitch_BB: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Pitch_SO > 84 | Pitch_SO < 1498 | is.na(Pitch_SO))
+paste0("Pitch_SO: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Field_E < 432 | is.na(Field_E))
+paste0("Field_E: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+eval_outs_drop <- eval_outs_drop %>%
+  filter(Field_DP > 81 | Field_DP < 214 | is.na(Field_DP))
+paste0("Field_DP: ",row_count - nrow(eval_outs_drop))
+row_count <- nrow(eval_outs_drop)
+
+```
+
+
+```{r}
+train_outs_drop %>% select(-INDEX) %>%
+  gather(key = "variable", value = "value") %>%  
+  ggplot(aes(x = value)) + 
+  geom_density(fill = 'gray') + 
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5))
+```
+
+
+### BoxCox Transformation
+
+
+```{r Train Outs Drop BoxCox Transform}
+
+#order of Caret: Box-Cox/Yeo-Johnson/exponential transformation, centering, scaling,
+
+train_outs_drop <- train_outs_drop %>% select(-INDEX)
+preProcValues_outs <- preProcess(train_outs_drop[-1], method = c("BoxCox","center","scale")) #-1 to remove win
+
+trainBC_outs_drop <- predict(preProcValues_outs, train_outs_drop)
+
+#Saving the BoxCox values to perform on the test set
+
+trainBC_outs_lambdas <- rbind(preProcValues_outs$bc$Bat_H$lambda, preProcValues_outs$bc$Bat_2B$lambda,
+                          preProcValues_outs$bc$Bat_3B$lambda, preProcValues_outs$bc$Bat_HR$lambda,
+                          preProcValues_outs$bc$Bat_BB$lambda, preProcValues_outs$bc$Bat_SO$lambda,
+                          preProcValues_outs$bc$Base_SB$lambda, preProcValues_outs$bc$Pitch_H$lambda,
+                          preProcValues_outs$bc$Pitch_HR$lambda, preProcValues_outs$bc$Pitch_BB$lambda,
+                          preProcValues_outs$bc$Pitch_SO$lambda, preProcValues_outs$bc$Field_E$lambda,
+                          preProcValues_outs$bc$Field_DP$lambda)
+
+
+#13 lists in bc
+# First item in each list is lambda
+# 
+# out_Bat_H_lambda <- preProcValues_outs$bc$Bat_H$lambda
+# outs_Bat_2B_lambda <- preProcValues_outs$bc$Bat_2B$lambda
+# 
+# outs_Bat_3B_lambda <- preProcValues_outs$bc$Bat_3B$lambda
+# outs_Bat_HR_lambda <- preProcValues_outs$bc$Bat_HR$lambda
+# 
+# outs_Bat_BB_lambda <- preProcValues_outs$bc$Bat_BB$lambda
+# outs_Bat_SO_lambda <- preProcValues_outs$bc$Bat_SO$lambda
+# 
+# outs_Base_SB_lambda <- preProcValues_outs$bc$Base_SB$lambda
+# outs_Pitch_H_lambda <- preProcValues_outs$bc$Pitch_H$lambda
+# 
+# outs_Pitch_HR_lambda <- preProcValues_outs$bc$Pitch_HR$lambda
+# outs_Pitch_BB_lambda <- preProcValues_outs$bc$Pitch_BB$lambda
+# 
+# outs_Pitch_SO_lambda <- preProcValues_outs$bc$Pitch_SO$lambda
+# outs_Field_E_lambda <- preProcValues_outs$bc$Field_E$lambda
+# 
+# outs_Field_DP_lambda <- preProcValues_outs$bc$Field_DP$lambda
+```
+
+```{r Eval Outs Drop BoxCox Transform}
+library(forecast)
+
+
+eval_outs_drop <- eval_outs_drop %>% select(-INDEX)
+evalBC_outs_drop <- eval_outs_drop # creating new object for transformation
+
+
+evalBC_outs_drop$Bat_H <- BoxCox(eval_outs_drop[[2]], trainBC_outs_lambdas[[1]])
+evalBC_outs_drop$Bat_2B <- BoxCox(eval_outs_drop[[3]], trainBC_outs_lambdas[[2]])
+evalBC_outs_drop$Bat_3B <- BoxCox(eval_outs_drop[[4]], trainBC_outs_lambdas[3])
+evalBC_outs_drop$Bat_HR <- BoxCox(eval_outs_drop[[5]], trainBC_outs_lambdas[4])
+evalBC_outs_drop$Bat_BB <- BoxCox(eval_outs_drop[[6]], trainBC_outs_lambdas[5])
+evalBC_outs_drop$Bat_SO <- BoxCox(eval_outs_drop[[7]], trainBC_outs_lambdas[6])
+evalBC_outs_drop$Base_SB <- BoxCox(eval_outs_drop[[8]], trainBC_outs_lambdas[7])
+evalBC_outs_drop$Pitch_H <- BoxCox(eval_outs_drop[[9]], trainBC_outs_lambdas[8])
+evalBC_outs_drop$Pitch_HR <- BoxCox(eval_outs_drop[[10]], trainBC_outs_lambdas[9])
+evalBC_outs_drop$Pitch_BB <- BoxCox(eval_outs_drop[[11]], trainBC_outs_lambdas[10])
+evalBC_outs_drop$Pitch_SO <- BoxCox(eval_outs_drop[[12]], trainBC_outs_lambdas[11])
+evalBC_outs_drop$Field_E <- BoxCox(eval_outs_drop[[13]], trainBC_outs_lambdas[12])
+evalBC_outs_drop$Field_DP <- BoxCox(eval_outs_drop[[14]], trainBC_outs_lambdas[13])
+
+preProcValues_eval_outs <- preProcess(evalBC_outs_drop[-1], method = c("center","scale"))
+
+evalBC_outs_drop <- predict(preProcValues_eval_outs, evalBC_outs_drop)
+```
+```{r Winsorize Data}
+library(DescTools) #will mask BoxCox from Forecast
+
+# Creating new objects for transformation
+train_winsor <- no_zeros_train %>% select(-INDEX) #training data
+eval_winsor <- no_zeros_eval %>% select(-INDEX) #eval data
+
+# Transformations
+## Training Data
+for (col in colnames(train_winsor[-1])) { #removing Wins column name
+  train_winsor[[col]] <- Winsorize(train_winsor[[col]], na.rm = TRUE) #for each column, winsorize and overwrite
+}
+
+## Eval Data
+for (col in colnames(eval_winsor[-1])) { #removing Wins column name
+  eval_winsor[[col]] <- Winsorize(eval_winsor[[col]], na.rm = TRUE) #for each column, winsorize and overwrite
+}
+
+eval_winsor <- round(eval_winsor) #winsorize introduces digits
+```
+
+```{r Train Winsor Transform }
+trainBC_winsor <- train_winsor # Creating new object for transformation
+preProcValues_winsor <- preProcess(trainBC_winsor[-1], method = c("BoxCox","center","scale")) #-1 to remove win
+
+trainBC_winsor <- predict(preProcValues_winsor, trainBC_winsor)
+
+#Saving the BoxCox values to perform on the test set
+
+trainBC_winsor_lambdas <- rbind(preProcValues_winsor$bc$Bat_H$lambda, preProcValues_winsor$bc$Bat_2B$lambda,
+                          preProcValues_winsor$bc$Bat_3B$lambda, preProcValues_winsor$bc$Bat_HR$lambda,
+                          preProcValues_winsor$bc$Bat_BB$lambda, preProcValues_winsor$bc$Bat_SO$lambda,
+                          preProcValues_winsor$bc$Base_SB$lambda, preProcValues_winsor$bc$Pitch_H$lambda,
+                          preProcValues_winsor$bc$Pitch_HR$lambda, preProcValues_winsor$bc$Pitch_BB$lambda,
+                          preProcValues_winsor$bc$Pitch_SO$lambda, preProcValues_winsor$bc$Field_E$lambda,
+                          preProcValues_winsor$bc$Field_DP$lambda)
+```
+
+```{r Eval Winsor Transform}
+library(forecast)
+
+evalBC_winsor <- eval_winsor # creating new object for transformation
+
+
+evalBC_winsor$Bat_H <- BoxCox(eval_winsor[[2]], trainBC_winsor_lambdas[[1]])
+evalBC_winsor$Bat_2B <- BoxCox(eval_winsor[[3]], trainBC_winsor_lambdas[[2]])
+evalBC_winsor$Bat_3B <- BoxCox(eval_winsor[[4]], trainBC_winsor_lambdas[3])
+evalBC_winsor$Bat_HR <- BoxCox(eval_winsor[[5]], trainBC_winsor_lambdas[4])
+evalBC_winsor$Bat_BB <- BoxCox(eval_winsor[[6]], trainBC_winsor_lambdas[5])
+evalBC_winsor$Bat_SO <- BoxCox(eval_winsor[[7]], trainBC_winsor_lambdas[6])
+evalBC_winsor$Base_SB <- BoxCox(eval_winsor[[8]], trainBC_winsor_lambdas[7])
+evalBC_winsor$Pitch_H <- BoxCox(eval_winsor[[9]], trainBC_winsor_lambdas[8])
+evalBC_winsor$Pitch_HR <- BoxCox(eval_winsor[[10]], trainBC_winsor_lambdas[9])
+evalBC_winsor$Pitch_BB <- BoxCox(eval_winsor[[11]], trainBC_winsor_lambdas[10])
+evalBC_winsor$Pitch_SO <- BoxCox(eval_winsor[[12]], trainBC_winsor_lambdas[11])
+evalBC_winsor$Field_E <- BoxCox(eval_winsor[[13]], trainBC_winsor_lambdas[12])
+evalBC_winsor$Field_DP <- BoxCox(eval_winsor[[14]], trainBC_winsor_lambdas[13])
+
+preProcValues_evalBC_winsor <- preProcess(evalBC_winsor[-1], method = c("center","scale")) # Center and scale
+
+evalBC_winsor <- predict(preProcValues_evalBC_winsor, evalBC_winsor)
+```
+
+```{r Check Normality After Transforms, echo = FALSE, eval = FALSE}
+bc_columns = names(trainBC_winsor)
+
+for (col in bc_columns) {
+  
+  # histogram
+  print(
+    ggplot(trainBC_winsor, aes(x = .data[[col]])) + 
+      geom_histogram(bins = 30) +
+      labs(title = paste("Histogram of", col), x = col, y = "Frequency")
+  )
+  
+  #qq plot
+  qqnorm(trainBC_winsor[[col]], main = paste("Q-Q Plot of", col))
+  qqline(trainBC_winsor[[col]])
+  
+  #Shapiro-Wilk
+  shapiro_test = shapiro.test(trainBC_winsor[col][!is.na(trainBC_winsor[col])]) 
+  print(paste("Shapiro test - ", col, "p-value:", shapiro_test$p.value))
+  
+  #relationship with target varable
+  print(
+    ggplot(trainBC_winsor, aes(x = .data[[col]], y = Wins)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    labs(title = "Relationship with TARGET_WINS", x = col, y = "TARGET_WINS"))
+}
+```
+
+```{r Impute: Outliers Dropped}
+
+impute = function(column, method) {
+
+  if (method == "mean") {
+    imputed_column = if_else(is.na(column), mean(column, na.rm = TRUE), column)
+  } else if (method == "median") {
+    imputed_column = if_else(is.na(column), median(column, na.rm = TRUE), column)
+  }
+  return(imputed_column)
+}
+
+
+for (col in names(trainBC_outs_drop)) {
+  
+  method <- if (col %in% names(trainBC_outs_drop)) "mean" else "median"
+  trainBC_outs_drop[[col]] <- impute(trainBC_outs_drop[[col]], method)
+  
+}
+
+for (col in names(evalBC_outs_drop)) {
+  
+  method <- if (col %in% names(evalBC_outs_drop)) "mean" else "median"
+  evalBC_outs_drop[[col]] <- impute(evalBC_outs_drop[[col]], method)
+  
+}
+
+#sum(is.na(trainBC_outs_drop)) #check remaining nas
+
+```
+
+
+```{r Impute: Winsorized Data}
+
+for (col in names(trainBC_winsor)) {
+  
+  method <- if (col %in% c("Bat_HR", "Bat_SO", "Pitch_HR", "Pitch_SO")) "median" else "mean"
+  trainBC_winsor[[col]] <- impute(trainBC_winsor[[col]], method)
+  
+}
+
+for (col in names(evalBC_winsor)) {
+  
+  method <- if (col %in% c("Bat_HR", "Bat_SO", "Pitch_HR", "Pitch_SO")) "median" else "mean"
+  evalBC_winsor[[col]] <- impute(evalBC_winsor[[col]], method)
+  
+}
+
+#sum(is.na(trainBC_outs_drop)) #check if remaining nas
+
+```
+
+Describe how you have transformed the data by changing the original variables or creating new variables. If you 
+did transform the data or create new variables, discuss why you did this. Here are some possible transformations.
+a. Fix missing values (maybe with a Mean or Median value)
+
+c. Transform data by putting it into buckets
+d. Mathematical transforms such as log or square root (or use Box-Cox)
+e. Combine variables (such as ratios or adding or multiplying) to create new variables
