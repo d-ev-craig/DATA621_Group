@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 training_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-training-data.csv")
-evaluation_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-evaluation-data.csv")
+testing_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-evaluation-data.csv")
 ```
 
 |    This data set describes baseball team statistics between the years of 1871 to 2006. The dataset contains 2,276 quantitative observations, documenting pitching, batting, and fielding performances across 17 variables. A quick explanation of each variable is below with their expected impact on predicting wins for a baseball team. All variables were numeric.
@@ -358,10 +358,46 @@ train_outs_drop %>% select(-INDEX) %>%
   facet_wrap(~ variable, scales = 'free') +
   theme(strip.text = element_text(size = 5))
 ```
+### Adding Variables
+|    
+
+```{r}
+train_outs_drop <- train_outs_drop %>%
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+
+eval_outs_drop <- eval_outs_drop %>%
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+```
+
+```{r}
+
+
+train_winsor <- no_zeros_train %>% select(-INDEX) %>% #training data
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+
+eval_winsor <- no_zeros_eval %>% select(-INDEX) %>% #eval data
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+```
+
 
 
 ### BoxCox Transformation
-
 
 ```{r Train Outs Drop BoxCox Transform}
 
@@ -378,33 +414,17 @@ trainBC_outs_lambdas <- rbind(preProcValues_outs$bc$Bat_H$lambda, preProcValues_
                           preProcValues_outs$bc$Bat_3B$lambda, preProcValues_outs$bc$Bat_HR$lambda,
                           preProcValues_outs$bc$Bat_BB$lambda, preProcValues_outs$bc$Bat_SO$lambda,
                           preProcValues_outs$bc$Base_SB$lambda, preProcValues_outs$bc$Pitch_H$lambda,
-                          preProcValues_outs$bc$Pitch_HR$lambda, preProcValues_outs$bc$Pitch_BB$lambda,
+                          preProcValues_outs$bc$Pitch_HR$lambda,preProcValues_outs$bc$Pitch_BB$lambda,
                           preProcValues_outs$bc$Pitch_SO$lambda, preProcValues_outs$bc$Field_E$lambda,
-                          preProcValues_outs$bc$Field_DP$lambda)
+                          preProcValues_outs$bc$Field_DP$lambda,
+                          preProcValues_outs$bc$Bat_H_Pitch_H_Ratio$lambda,
+                          preProcValues_outs$bc$Bat_HR_Pitch_HR_Ratio$lambda,
+                          preProcValues_outs$bc$Bat_BB_Pitch_BB_Ratio$lambda,
+                          preProcValues_outs$bc$Bat_SO_Pitch_SO_Ratio$lambda)
 
 
-#13 lists in bc
-# First item in each list is lambda
-# 
-# out_Bat_H_lambda <- preProcValues_outs$bc$Bat_H$lambda
-# outs_Bat_2B_lambda <- preProcValues_outs$bc$Bat_2B$lambda
-# 
-# outs_Bat_3B_lambda <- preProcValues_outs$bc$Bat_3B$lambda
-# outs_Bat_HR_lambda <- preProcValues_outs$bc$Bat_HR$lambda
-# 
-# outs_Bat_BB_lambda <- preProcValues_outs$bc$Bat_BB$lambda
-# outs_Bat_SO_lambda <- preProcValues_outs$bc$Bat_SO$lambda
-# 
-# outs_Base_SB_lambda <- preProcValues_outs$bc$Base_SB$lambda
-# outs_Pitch_H_lambda <- preProcValues_outs$bc$Pitch_H$lambda
-# 
-# outs_Pitch_HR_lambda <- preProcValues_outs$bc$Pitch_HR$lambda
-# outs_Pitch_BB_lambda <- preProcValues_outs$bc$Pitch_BB$lambda
-# 
-# outs_Pitch_SO_lambda <- preProcValues_outs$bc$Pitch_SO$lambda
-# outs_Field_E_lambda <- preProcValues_outs$bc$Field_E$lambda
-# 
-# outs_Field_DP_lambda <- preProcValues_outs$bc$Field_DP$lambda
+#17 lists in bc
+
 ```
 
 ```{r Eval Outs Drop BoxCox Transform}
@@ -429,25 +449,30 @@ evalBC_outs_drop$Pitch_SO <- BoxCox(eval_outs_drop[[12]], trainBC_outs_lambdas[1
 evalBC_outs_drop$Field_E <- BoxCox(eval_outs_drop[[13]], trainBC_outs_lambdas[12])
 evalBC_outs_drop$Field_DP <- BoxCox(eval_outs_drop[[14]], trainBC_outs_lambdas[13])
 
+evalBC_outs_drop$Bat_H_Pitch_H_Ratio <- BoxCox(eval_outs_drop[[15]], trainBC_outs_lambdas[14])
+evalBC_outs_drop$Bat_HR_Pitch_HR_Ratio <- BoxCox(eval_outs_drop[[16]], trainBC_outs_lambdas[15])
+evalBC_outs_drop$Bat_BB_Pitch_BB_Ratio <- BoxCox(eval_outs_drop[[17]], trainBC_outs_lambdas[16])
+evalBC_outs_drop$Bat_SO_Pitch_SO_Ratio <- BoxCox(eval_outs_drop[[18]], trainBC_outs_lambdas[17])
+
+
+
 preProcValues_eval_outs <- preProcess(evalBC_outs_drop[-1], method = c("center","scale"))
 
 evalBC_outs_drop <- predict(preProcValues_eval_outs, evalBC_outs_drop)
 ```
+
 ```{r Winsorize Data}
 library(DescTools) #will mask BoxCox from Forecast
 
-# Creating new objects for transformation
-train_winsor <- no_zeros_train %>% select(-INDEX) #training data
-eval_winsor <- no_zeros_eval %>% select(-INDEX) #eval data
-
 # Transformations
 ## Training Data
-for (col in colnames(train_winsor[-1])) { #removing Wins column name
+for (col in colnames(train_winsor[,c(-1, -15, -16, -17, -18)])) { #removing Wins column name
   train_winsor[[col]] <- Winsorize(train_winsor[[col]], na.rm = TRUE) #for each column, winsorize and overwrite
 }
 
 ## Eval Data
-for (col in colnames(eval_winsor[-1])) { #removing Wins column name
+## Removing ratio columns since it will cause a zero variance result if a BoxCox transform occurs after
+for (col in colnames(eval_winsor[,c(-1, -15, -16, -17, -18)])) { #removing Wins, and Ratio columns 
   eval_winsor[[col]] <- Winsorize(eval_winsor[[col]], na.rm = TRUE) #for each column, winsorize and overwrite
 }
 
@@ -462,13 +487,19 @@ trainBC_winsor <- predict(preProcValues_winsor, trainBC_winsor)
 
 #Saving the BoxCox values to perform on the test set
 
-trainBC_winsor_lambdas <- rbind(preProcValues_winsor$bc$Bat_H$lambda, preProcValues_winsor$bc$Bat_2B$lambda,
-                          preProcValues_winsor$bc$Bat_3B$lambda, preProcValues_winsor$bc$Bat_HR$lambda,
-                          preProcValues_winsor$bc$Bat_BB$lambda, preProcValues_winsor$bc$Bat_SO$lambda,
-                          preProcValues_winsor$bc$Base_SB$lambda, preProcValues_winsor$bc$Pitch_H$lambda,
-                          preProcValues_winsor$bc$Pitch_HR$lambda, preProcValues_winsor$bc$Pitch_BB$lambda,
-                          preProcValues_winsor$bc$Pitch_SO$lambda, preProcValues_winsor$bc$Field_E$lambda,
-                          preProcValues_winsor$bc$Field_DP$lambda)
+trainBC_winsor_lambdas <- rbind(
+  preProcValues_winsor$bc$Bat_H$lambda,preProcValues_winsor$bc$Bat_2B$lambda,
+  preProcValues_winsor$bc$Bat_3B$lambda, preProcValues_winsor$bc$Bat_HR$lambda,
+  preProcValues_winsor$bc$Bat_BB$lambda, preProcValues_winsor$bc$Bat_SO$lambda,
+  preProcValues_winsor$bc$Base_SB$lambda, preProcValues_winsor$bc$Pitch_H$lambda,
+  preProcValues_winsor$bc$Pitch_HR$lambda, preProcValues_winsor$bc$Pitch_BB$lambda,
+  preProcValues_winsor$bc$Pitch_SO$lambda, preProcValues_winsor$bc$Field_E$lambda,
+  preProcValues_winsor$bc$Field_DP$lambda,
+  preProcValues_winsor$bc$Bat_H_Pitch_H_Ratio$lambda,
+  preProcValues_winsor$bc$Bat_HR_Pitch_HR_Ratio$lambda,
+  preProcValues_winsor$bc$Bat_BB_Pitch_BB_Ratio$lambda,
+  preProcValues_winsor$bc$Bat_SO_Pitch_SO_Ratio$lambda
+)
 ```
 
 ```{r Eval Winsor Transform}
@@ -490,6 +521,11 @@ evalBC_winsor$Pitch_BB <- BoxCox(eval_winsor[[11]], trainBC_winsor_lambdas[10])
 evalBC_winsor$Pitch_SO <- BoxCox(eval_winsor[[12]], trainBC_winsor_lambdas[11])
 evalBC_winsor$Field_E <- BoxCox(eval_winsor[[13]], trainBC_winsor_lambdas[12])
 evalBC_winsor$Field_DP <- BoxCox(eval_winsor[[14]], trainBC_winsor_lambdas[13])
+
+evalBC_winsor$Bat_H_Pitch_H_Ratio <- BoxCox(eval_winsor[[15]], trainBC_winsor_lambdas[14])
+evalBC_winsor$Bat_HR_Pitch_HR_Ratio <- BoxCox(eval_winsor[[16]], trainBC_winsor_lambdas[15])
+evalBC_winsor$Bat_BB_Pitch_BB_Ratio <- BoxCox(eval_winsor[[17]], trainBC_winsor_lambdas[16])
+evalBC_winsor$Bat_SO_Pitch_SO_Ratio <- BoxCox(eval_winsor[[18]], trainBC_winsor_lambdas[17])
 
 preProcValues_evalBC_winsor <- preProcess(evalBC_winsor[-1], method = c("center","scale")) # Center and scale
 
@@ -579,19 +615,140 @@ for (col in names(evalBC_winsor)) {
 
 ```{r Export Final Data}
 library(readr)
-write_csv(trainBC_outs_drop,"../data/prepped_data_2/trainBC_outs_drop.csv")
-write_csv(evalBC_outs_drop,"../data/prepped_data_2/evalBC_outs_drop.csv")
+write_csv(trainBC_outs_drop,"./data/prepped_data_2/trainBC_outs_drop.csv")
+write_csv(evalBC_outs_drop,"./data/prepped_data_2/evalBC_outs_drop.csv")
 
-write_csv(trainBC_winsor,"../data/prepped_data_2/trainBC_winsor.csv")
-write_csv(evalBC_winsor,"../data/prepped_data_2/evalBC_winsor.csv")
+write_csv(trainBC_winsor,"./data/prepped_data_2/trainBC_winsor.csv")
+write_csv(evalBC_winsor,"./data/prepped_data_2/evalBC_winsor.csv")
+```
 
+```{r Prediction Outliers Data Prep}
+# The test data will also need the same transformations applied to them
+## Replacing 0s with NA
+
+no_zeros_test <- testing_data %>%
+  select(-INDEX,-TEAM_BASERUN_CS, -TEAM_BATTING_HBP) %>%
+  mutate(across(everything(), ~ifelse(. == 0, NA, .)))
+
+colnames(no_zeros_test) <- c("Bat_H","Bat_2B","Bat_3B","Bat_HR","Bat_BB", "Bat_SO","Base_SB","Pitch_H","Pitch_HR","Pitch_BB","Pitch_SO","Field_E","Field_DP")
+
+# Creating this object for ease of Find/Replace below
+
+test_outs_drop <- no_zeros_test %>%   
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+
+testBC_outs_drop <- test_outs_drop# creating new object for transformation
+
+## Outliers will not be dropped from the test data
+
+# Note that the indexes for test_outs_drop are 1 less than train_outs_drop due to lack of Wins col
+# Note we are using the same lambda values as in the training data
+testBC_outs_drop$Bat_H <- BoxCox(test_outs_drop[[1]], trainBC_outs_lambdas[[1]])
+testBC_outs_drop$Bat_2B <- BoxCox(test_outs_drop[[2]], trainBC_outs_lambdas[[2]])
+testBC_outs_drop$Bat_3B <- BoxCox(test_outs_drop[[3]], trainBC_outs_lambdas[3])
+testBC_outs_drop$Bat_HR <- BoxCox(test_outs_drop[[4]], trainBC_outs_lambdas[4])
+testBC_outs_drop$Bat_BB <- BoxCox(test_outs_drop[[5]], trainBC_outs_lambdas[5])
+testBC_outs_drop$Bat_SO <- BoxCox(test_outs_drop[[6]], trainBC_outs_lambdas[6])
+testBC_outs_drop$Base_SB <- BoxCox(test_outs_drop[[7]], trainBC_outs_lambdas[7])
+testBC_outs_drop$Pitch_H <- BoxCox(test_outs_drop[[8]], trainBC_outs_lambdas[8])
+testBC_outs_drop$Pitch_HR <- BoxCox(test_outs_drop[[9]], trainBC_outs_lambdas[9])
+testBC_outs_drop$Pitch_BB <- BoxCox(test_outs_drop[[10]], trainBC_outs_lambdas[10])
+testBC_outs_drop$Pitch_SO <- BoxCox(test_outs_drop[[11]], trainBC_outs_lambdas[11])
+testBC_outs_drop$Field_E <- BoxCox(test_outs_drop[[12]], trainBC_outs_lambdas[12])
+testBC_outs_drop$Field_DP <- BoxCox(test_outs_drop[[13]], trainBC_outs_lambdas[13])
+
+testBC_outs_drop$Bat_H_Pitch_H_Ratio <- BoxCox(test_outs_drop[[14]], trainBC_outs_lambdas[13])
+testBC_outs_drop$Bat_HR_Pitch_HR_Ratio <- BoxCox(test_outs_drop[[15]], trainBC_outs_lambdas[14])
+testBC_outs_drop$Bat_BB_Pitch_BB_Ratio <- BoxCox(test_outs_drop[[16]], trainBC_outs_lambdas[15])
+testBC_outs_drop$Bat_SO_Pitch_SO_Ratio <- BoxCox(test_outs_drop[[17]], trainBC_outs_lambdas[16])
+
+# Centering and Scaling Data
+preProcValues_testBC_outs <- preProcess(testBC_outs_drop, method = c("center","scale"))
+
+testBC_outs_drop <- predict(preProcValues_testBC_outs, testBC_outs_drop)
+
+# Impute
+
+
+
+for (col in names(testBC_outs_drop)) {
+  
+  method <- if (col %in% names(testBC_outs_drop)) "mean" else "median"
+  testBC_outs_drop[[col]] <- impute(testBC_outs_drop[[col]], method)
+  
+}
+
+write_csv(testBC_outs_drop, "./data/prepped_data_2/testBC_outs_drop.csv")
 
 ```
+```{r Prediction Winsor Data Prep}
+
+
+test_winsor <- no_zeros_test %>%  # Creating this object for ease of Find/Replace below 
+  mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
+         Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
+         Bat_BB_Pitch_BB_Ratio = Bat_BB / Pitch_BB,
+         Bat_SO_Pitch_SO_Ratio = Bat_SO / Pitch_SO
+         )
+
+testBC_winsor <- no_zeros_test # creating new object for transformation
+
+## Outliers will not be dropped from the test data
+
+# Note that the indexes for test_outs_drop are 1 less than train_outs_drop due to lack of Wins col
+testBC_winsor$Bat_H <- BoxCox(test_winsor[[1]], trainBC_winsor_lambdas[[1]])
+testBC_winsor$Bat_2B <- BoxCox(test_winsor[[2]], trainBC_winsor_lambdas[[2]])
+testBC_winsor$Bat_3B <- BoxCox(test_winsor[[3]], trainBC_winsor_lambdas[3])
+testBC_winsor$Bat_HR <- BoxCox(test_winsor[[4]], trainBC_winsor_lambdas[4])
+testBC_winsor$Bat_BB <- BoxCox(test_winsor[[5]], trainBC_winsor_lambdas[5])
+testBC_winsor$Bat_SO <- BoxCox(test_winsor[[6]], trainBC_winsor_lambdas[6])
+testBC_winsor$Base_SB <- BoxCox(test_winsor[[7]], trainBC_winsor_lambdas[7])
+testBC_winsor$Pitch_H <- BoxCox(test_winsor[[8]], trainBC_winsor_lambdas[8])
+testBC_winsor$Pitch_HR <- BoxCox(test_winsor[[9]], trainBC_winsor_lambdas[9])
+testBC_winsor$Pitch_BB <- BoxCox(test_winsor[[10]], trainBC_winsor_lambdas[10])
+testBC_winsor$Pitch_SO <- BoxCox(test_winsor[[11]], trainBC_winsor_lambdas[11])
+testBC_winsor$Field_E <- BoxCox(test_winsor[[12]], trainBC_winsor_lambdas[12])
+testBC_winsor$Field_DP <- BoxCox(test_winsor[[13]], trainBC_winsor_lambdas[13])
+
+# Centering and Scaling Data
+preProcValues_testBC_winsor <- preProcess(testBC_winsor, method = c("center","scale"))
+
+testBC_winsor <- predict(preProcValues_testBC_winsor, testBC_winsor)
+
+# Impute
+
+for (col in names(testBC_winsor)) {
+  
+  method <- if (col %in% names(testBC_winsor)) "mean" else "median"
+  testBC_winsor[[col]] <- impute(testBC_winsor[[col]], method)
+  
+}
+
+write_csv(testBC_winsor, "./data/prepped_data_2/testBC_winsor.csv")
+```
+
 
 
 ## Data Modeling
 
-```{r}
 
+```{r}
+lm_mod_o1 <- lm(Wins ~ Field_E + Field_DP + Base_SB +Bat_2B + Bat_3B + Bat_3B +Bat_H + Bat_BB +Bat_SO, data = trainBC_outs_drop)
+summary(lm_mod_o1)
+# Only Sign. - .32
+
+lm_mod_all <- lm(Wins ~ ., data = trainBC_outs_drop)
+summary(lm_mod_all)
+# All vars - .339
+
+lm_mod_all_int <- lm(Wins ~ (.)^2, data = trainBC_outs_drop)
+summary(lm_mod_all_int)
+
+anova(lm_mod_all_int)
+# All Interaction
 ```
 
