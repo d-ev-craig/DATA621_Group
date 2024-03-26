@@ -17,6 +17,7 @@ library(tidyverse)
 library(knitr)
 library(ggcorrplot)
 library(caret)
+library(ROCR)
 ```
 
 ```{r}
@@ -55,7 +56,7 @@ hsig <- data.frame(Variable_Name = c('Indus','Nox_Transformed','Dis_Transformed'
 
 kable(hsig)
 ```
-|    Baseline models showed that Nox and Rad were both highly significant. PTRatio was on the fringe of significance.
+|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of 
 
 ```{r, echo = FALSE}
 q <- cor(train_clean)
@@ -69,9 +70,11 @@ q_filter[!condition] <- NA
 q_filter['target',]
 ```
 
-```{r}
 
-set.seed(123)
+
+
+```{r}
+#set.seed(123)
 # Convertin target variable to factor
 train_clean$target <- ifelse(train_clean$target==0, "No","Yes")
 train_clean$target <- factor(train_clean$target)
@@ -82,17 +85,66 @@ trainIndex <- createDataPartition(train_clean$target, p = 0.7, list = FALSE)
 trainData <- train_clean[trainIndex, ]
 testData <- train_clean[-trainIndex, ]
 
+```
+
+
+
+```{r PCA, echo = FALSE}
+# Perform PCA on the weak variables
+pca_result <- prcomp(train_clean[, c("ptratio_transformed", "dis_transformed" , "age_transformed" , "medv", "chas" , "zn_transformed", "indus", "lstat_transformed" , "rm")], scale. = TRUE)
+
+summary(pca_result)
+# Extract the first principal component
+pc1 <- pca_result$x[, 1]
+
+# Create a new data frame with the strong variables and the principal component
+pca_clean <- data.frame(target = train_clean$target, nox_transformed = train_clean$nox_transformed, rad = train_clean$rad, tax = train_clean$tax, pc1 = pc1)
+```
+
+```{r PCA Split}
+#set.seed(123)
+
+# Split the data into train and test sets
+pcaIndex <- createDataPartition(pca_clean$target, p = 0.7, list = FALSE)
+pcaTrain <- pca_clean[trainIndex, ]
+pcaTest <- pca_clean[-trainIndex, ]
+
+pcaFormula <- target ~  nox_transformed + rad + tax + pc1
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5, repeats = 10,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary)
+
+pcaModel <- train(pcaFormula, data = pcaTrain,
+                       method = "glm", family = "binomial",
+                       trControl = ctrl,
+                       metric = "ROC")
+
+summary(pcaModel)
+
+# Make predictions on the test set
+predictions <- predict(pcaModel, newdata = pcaTest)
+
+# Evaluate the model performance
+confusionMatrix(predictions, pcaTest$target)
+```
+
+
+
+```{r}
+
 # Define the model formula
-modelFormula <- target ~ zn_transformed + indus + chas + nox_transformed + age_transformed +
-                          dis_transformed + rad + tax + ptratio_transformed + lstat_transformed + medv #  + rm
+modelFormula <- target ~  nox_transformed + rad + tax 
+#  nox_transformed + rad  + tax + ptratio_transformed  + dis_transformed + age_transformed + medv+ chas + zn_transformed + indus + lstat_transformed + rm 
 
 #medv?
 
-modelFormula_2 <- target ~ (.)^2
+#modelFormula_2 <- target ~ (.)^2
 
 
-logitModel <- glm(modelFormula, family = binomial (link = "logit"), data = trainData)
-anova(logitModel)
+#logitModel <- glm(modelFormula, family = binomial (link = "logit"), data = trainData)
+#anova(logitModel)
 
 
 # CARET Method
@@ -133,7 +185,39 @@ predictions <- predict(logisticModel, newdata = testData)
 confusionMatrix(predictions, testData$target)
 
 #Full model - .92 accuracy
+# - rm = .92
+# - lstat = .928
+# - indus = .935
+# - zn_transformed = .9137
+# - chas = .9209
+# - medv = .9209
+# - age = .9209
+# - dis = .9209
+# - ptrat = .893
+# - tax = .9137
+# - rad = .87
+# - nox = 80
 ```
 
+
+```{r}
+predicted_probs <- predict(logisticModel, newdata = testData, type = "prob")[, 2]
+actual_labels <- testData$target
+
+# Create prediction object
+pred <- prediction(predicted_probs, actual_labels)
+
+# Calculate ROC curve
+roc_perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+
+# Plot ROC curve
+plot(roc_perf, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+# Calculate AUC
+auc <- performance(pred, measure = "auc")
+auc_value <- auc@y.values[[1]]
+cat("AUC:", round(auc_value, 4), "\n")
+```
 
 
