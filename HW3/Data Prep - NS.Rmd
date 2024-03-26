@@ -1,0 +1,95 @@
+
+---
+title: "Data Prep - NS"
+author: "Noori Selina"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Loading required libraries 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)  # For Box-Cox transformation
+library(dplyr) # For data manipulation
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(ggcorrplot)
+```
+
+Loading the data set
+```{r}
+url <- "https://raw.githubusercontent.com/Shayaeng/DATA621_Group/main/HW3/Provided%20data/crime-training-data_modified.csv"
+train <- read.csv(url)
+dim(train)
+head(train)
+```
+
+
+## Data Preparation
+After our initial data exploration, we can now  move on to data preparation. This involves handling missing values, outliers, and performing necessary transformations to address skewness in the data.
+
+### Fix Missing Values
+As noted in the exploratory section, there no missing values within the data set, so we did not need to perform any imputation or handling of missing data.
+
+### Transformations
+
+During our exploratory analysis, we noticed that some variables had skewed distributions, which could affect the accuracy of our models. To address this issue, we applied specific transformations to make the data more suitable for modeling:
+
+- **Logarithmic Transformation**: Used for variables 'dis', 'lstat', 'zn', and 'nox'. This transformation helps to reduce the impact of extreme values and make the distribution more balanced by compressing the range of values.
+
+- **Square Root Transformation**: Applied to 'age' and 'ptratio'. By taking the square root, we make the distribution less skewed, which can improve model performance, especially for variables with a left-skewed pattern.
+
+The rest of the variables were kept unchanged because they either didn't exhibit significant skewness in their distributions or because alternative transformations were not deemed necessary based on our exploratory analysis. By retaining these variables in their original form, we ensure that the original information is preserved while still addressing skewness in the variables where it was observed.
+
+These transformations simplify the data distribution, making it easier for models to interpret and generate more reliable predictions.
+
+```{r}
+# Perform transformations with only logarithmic and square root transformations
+train_clean <- train %>%
+  mutate(dis_transformed = log(dis),
+         lstat_transformed = log(lstat),
+         zn_transformed = log(zn + 1),
+         nox_transformed = log(nox),
+         age_transformed = sqrt(age),
+         ptratio_transformed = sqrt(ptratio))
+
+train_clean <- train_clean[, !colnames(train_clean) %in% c("dis", "lstat", "age", "ptratio", "zn", "nox")]
+
+# Rearrange columns for consistency 
+desired_order <- c("zn_transformed", "indus", "chas", "nox_transformed", "rm", "age_transformed", 
+                   "dis_transformed", "rad", "tax", "ptratio_transformed", 
+                   "lstat_transformed", "medv", "target")
+
+train_clean <- train_clean[, desired_order]
+
+head(train_clean)
+
+```
+
+
+Visualizations of the cleaned dataset featuring the transformed variables are presented below through histograms. These visual representations aid in illustrating the distributions of the transformed variables.
+
+```{r}
+train_clean %>%
+  gather(key = "variable", value = "value") %>%
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 20, fill = 'lightblue', color = 'black') + 
+  stat_density(geom = "line", color = "red") +
+  facet_wrap(~ variable, scales = 'free') +
+  theme_minimal() +
+  labs(title = "Distribution of Transformed Variables",
+       x = "Value", y = "Density")
+```
+
+## Handling Outliers
+
+After reviewing boxplots of our variables from the data exploration, we noticed that several variables, including 'rm', 'medv', 'zn', and others, contained a significant number of outliers. Despite their presence, we decided to retain these outliers in our dataset. This decision was made to keep the original data intact and ensure that we have a complete view of the variable distributions. Excluding outliers could lead to losing important information. Therefore, we decided to include the outliers in our dataset to ensure reliable modeling results.
+
+Moving forward, our prepared dataset, train_clean, is ready for model building.
+```{r}
+head(train_clean)
+```
+
+

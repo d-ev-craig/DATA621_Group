@@ -1,0 +1,162 @@
+---
+title: "EDA HW 3"
+author: "Shaya Engelman"
+date: "2024-03-19"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(summarytools)
+library(tidyverse)
+library(knitr)
+library(ggcorrplot)
+```
+
+```{r load-data}
+url <- "https://raw.githubusercontent.com/Shayaeng/DATA621_Group/main/HW3/Provided%20data/crime-training-data_modified.csv"
+train <- read.csv(url)
+dim(train)
+head(train)
+```
+
+The training dataset has 466 records (rows) of 13 different variables.
+All the variables are numeric, however, column 'chas' is a dummy
+variable.
+
+The columns represent the following:
+
+-   zn: proportion of residential land zoned for large lots (over 25000
+    square feet) (predictor variable)
+-   indus: proportion of non-retail business acres per suburb (predictor
+    variable)
+-   chas: a dummy variable for whether the suburb borders the Charles
+    River
+    (1) or not (0) (predictor variable)
+-   nox: nitrogen oxides concentration (parts per 10 million) (predictor
+    variable)
+-   rm: average number of rooms per dwelling (predictor variable)
+-   age: proportion of owner-occupied units built prior to 1940
+    (predictor variable)
+-   dis: weighted mean of distances to five Boston employment centers
+    (predictor variable)
+-   rad: index of accessibility to radial highways (predictor variable)
+-   tax: full-value property-tax rate per \$10,000 (predictor variable)
+-   ptratio: pupil-teacher ratio by town (predictor variable)
+-   lstat: lower status of the population (percent) (predictor variable)
+-   medv: median value of owner-occupied homes in \$1000s (predictor
+    variable)
+-   target: whether the crime rate is above the median crime rate (1) or
+    not (0) (response variable)
+    
+For some of these variables, like, 'zn, 'chas', 'tax', and 'medv', it is easy to hypothesize whether the relationship between it and the target variable would be positive or negative. For other variables, it is a bit more difficult.
+
+First we should check for missing values:
+```{r}
+sapply(train, function(x) sum(is.na(x)))
+```
+We have zero missing values. That means we should not have to impute anything.
+
+```{r}
+descr <- round(descr(train), 2)
+kable(descr)
+```
+
+The above table gives us a concise summary of the variable statistics. It confirms that we have no missing values in any of the variables and shows us some important insights. We see significant skew in some of the variables and those would probably need some type of transformation.We can get a better idea of the distributions and skewness using the following plots:
+
+```{r}
+train |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 20, fill = 'lightblue', color = 'black') + 
+  stat_density(geom = "line", color = "red") +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5))
+```
+The plots clearly show significant right skew, kurtosis, in 'dis', and 'lstat'. It also shows left skew in 'age' and 'pratio'. These skewed variables might be candidates for transformation. The plots also illustrate thaat 'chas' is binary and can only have a value of 0 or 1. Another interesting observation is that variables 'rad', 'tax' and possibly 'indus' appear to be bimodal. Bimodal data is when we have two or more different classes in a dataset that act as groups.
+
+The above plots also seem to show some of the variables have wide distributions and many points above the density lines. These outliers can be visualized using boxplots:
+
+```{r}
+train |>
+  select(-chas, -target) |> #drop 'chas' and 'target' since they are binary variables
+  gather(key = "Variable", value = "Value") |>
+  ggplot(aes(x = "", y = Value)) +  
+  geom_boxplot(fill = "lightblue") +
+  facet_wrap(~ Variable, scales = "free") + 
+  labs(x = NULL, y = "Value") +  
+  theme(strip.text = element_text(size = 5))
+```
+These boxplots further confirm the skewness mentioned earlier. They also reveal that variables 'medv', 'm' and 'zn' all have a large amount of outliers. These should be investigated.
+
+We can gain more insight by plotting the boxplots broken down by the target variable:
+
+```{r}
+train |>
+  select(-chas) |> #drop 'chas' since it is a dummy variable
+  pivot_longer(cols = -target, names_to = "variable", values_to = "value") |>
+  ggplot(aes(x = variable, y = value, fill = factor(target))) +
+  geom_boxplot() +
+  labs(x = "Variable", y = "Value", fill = "Target") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~variable, scales = "free")
+```
+We now see some of the variables have very large differences in their distributions based on the target variable. These are variables that strongly seem to be correlated with the target variable and should presumably be included in our model.
+
+Our next step is to check the correlation between all our variables. This is for two purposes. One, to check which seem to be correlated with our target variable for inclusion in our models. Two, to check for multicollinearity between two of our predictor variables. We can use the below plot to visualize the correlations.
+
+```{r}
+q <- cor(train)
+ggcorrplot(q, type = "upper", outline.color = "white",
+           ggtheme = theme_classic,
+           colors = c("orange", "white", "skyblue"),
+           lab = TRUE, show.legend = F, tl.cex = 5, lab_size = 3) 
+```
+Negative Correlations with Crime Rate: Variables such as 'indus', 'nox' (nitrogen oxides concentration), 'age', 'dis' (distance to employment centers), 'rad' (accessibility to radial highways), 'tax', 'ptratio' (pupil-teacher ratio), 'lstat' (lower status of the population), and 'medv' (median value of owner-occupied homes) exhibit negative correlations with the target variable 'target', indicating that as these variables increase, the likelihood of the crime rate being above the median decreases. This suggests that areas with higher industrial presence, pollution levels, older housing stock, longer distances to employment centers, poorer accessibility to highways, higher tax rates, higher pupil-teacher ratios, lower socio-economic status, and lower median home values tend to have lower crime rates.
+
+Positive Correlations with Crime Rate: Conversely, variables such as 'zn' (proportion of residential land zoned for large lots) and 'chas' (proximity to Charles River) exhibit positive correlations with the target variable 'target', implying that as these variables increase, the likelihood of the crime rate being above the median also increases. This suggests that areas with larger residential lots and those bordering the Charles River may experience higher crime rates.
+
+The correlation matrix also illustrates some strong relationship between some of the predictor variables. For example, 'tax' and 'rad' have a very strong correlation of 0.91. While none of the rest of the predictor variables have anything that high there are still a few with pretty significant correlations. The following table extracts all the pairs of predictors with a correlation above 0.70 (chosen arbitrarily), these can all cause issues with collinearity and should be treated as such.
+```{r}
+# create a list of high correlation pairs
+high_correlation_pairs <- list()
+
+for (i in 1:(ncol(q) - 1)) {
+  for (j in (i + 1):ncol(q)) {
+    if (abs(q[i, j]) > 0.7) { # Exclude self-correlation and pairs already included
+      high_correlation_pairs[[toString(c(i, j))]] <- c(rownames(q)[i], rownames(q)[j], q[i, j])
+    }
+  }
+}
+
+# convert the list to a data frame
+high_correlation_df <- data.frame(do.call(rbind, high_correlation_pairs))
+rownames(high_correlation_df) <- NULL
+colnames(high_correlation_df) <- c("Variable_1", "Variable_2", "Correlation")
+high_correlation_df <- high_correlation_df |>
+  arrange(desc(abs(as.numeric(Correlation))))
+
+kable(high_correlation_df)
+```
+
+One last important thing to check is whether the classes of the target variable are balanced. Class imbalance can lead to misleading models. For example, if the data has an imbalance of 95%/5% success/fail rate, then predicting 100% percent of the time will be a success will result in a model successfull 95% of the time but of zero actual value to us. Since we are dealing with above or below the mean crime rate, I assume the data is balanced.
+
+```{r}
+class_freq <- train |>
+  count(target)
+
+ggplot(train, aes(x = target, fill = as.factor(target))) +
+  geom_bar(color = "black") +
+  geom_text(data = class_freq, aes(label = n, y = n), vjust = -0.5, size = 3, color = "black") +
+  scale_fill_manual(values = c("red", "skyblue")) +  # Customize fill colors
+  labs(title = "Class Distribution",
+       x = "Target Class",
+       y = "Frequency")
+```
+The above plot shows we are working with balanaced data with 237 below mean crime rate and 229 above in our records.

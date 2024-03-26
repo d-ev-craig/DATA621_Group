@@ -1,0 +1,139 @@
+
+---
+title: "Model_DC"
+author: "Daniel Craig"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Loading required libraries 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)  # For Box-Cox transformation
+library(dplyr) # For data manipulation
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(ggcorrplot)
+library(caret)
+```
+
+```{r}
+url <- "https://raw.githubusercontent.com/Shayaeng/DATA621_Group/main/HW3/Provided%20data/crime-training-data_modified.csv"
+train <- read.csv(url)
+dim(train)
+head(train)
+```
+Modelling will 
+```{r}
+# Perform transformations with only logarithmic and square root transformations
+train_clean <- train %>%
+  mutate(dis_transformed = log(dis),
+         lstat_transformed = log(lstat),
+         zn_transformed = log(zn + 1),
+         nox_transformed = log(nox),
+         age_transformed = sqrt(age),
+         ptratio_transformed = sqrt(ptratio))
+
+train_clean <- train_clean[, !colnames(train_clean) %in% c("dis", "lstat", "age", "ptratio", "zn", "nox")]
+
+# Rearrange columns for consistency 
+desired_order <- c("zn_transformed", "indus", "chas", "nox_transformed", "rm", "age_transformed", 
+                   "dis_transformed", "rad", "tax", "ptratio_transformed", 
+                   "lstat_transformed", "medv", "target")
+
+train_clean <- train_clean[, desired_order]
+```
+
+## Modeling
+
+|    For modelling, we start with using all available variables and evaluate their significance by the amount of variation they explain using ANOVA and their F Stat. We have expectations that variables with high correlation to *target* will be highly significant a chart for reference of expected highly significant variables:
+```{r}
+hsig <- data.frame(Variable_Name = c('Indus','Nox_Transformed','Dis_Transformed','Rad','Tax'),
+                   Correlation = c(.60, .75,-0.66,.63,.61))
+
+kable(hsig)
+```
+|    Baseline models showed that Nox and Rad were both highly significant. PTRatio was on the fringe of significance.
+
+```{r, echo = FALSE}
+q <- cor(train_clean)
+condition <- abs(q) > 0.6
+
+q_filter <- q
+q_filter[!condition] <- NA
+#q_filter <- q_filter['target', c('indus','nox_transformed','dis_transformed','rad','tax')]
+#q_filter
+
+q_filter['target',]
+```
+
+```{r}
+
+set.seed(123)
+# Convertin target variable to factor
+train_clean$target <- ifelse(train_clean$target==0, "No","Yes")
+train_clean$target <- factor(train_clean$target)
+
+
+# Split the data into train and test sets
+trainIndex <- createDataPartition(train_clean$target, p = 0.7, list = FALSE)
+trainData <- train_clean[trainIndex, ]
+testData <- train_clean[-trainIndex, ]
+
+# Define the model formula
+modelFormula <- target ~ zn_transformed + indus + chas + nox_transformed + age_transformed +
+                          dis_transformed + rad + tax + ptratio_transformed + lstat_transformed + medv #  + rm
+
+#medv?
+
+modelFormula_2 <- target ~ (.)^2
+
+
+logitModel <- glm(modelFormula, family = binomial (link = "logit"), data = trainData)
+anova(logitModel)
+
+
+# CARET Method
+#logisticModel <- train(modelFormula_2, data = trainData, method = "glm", family = "binomial")
+
+# ctrl <- trainControl(method = "repeatedcv", 
+#                      number = 5, repeats = 10,
+#                      classProbs = TRUE,
+#                      summaryFunction = twoClassSummary)
+# classProbs = TRUE - returns the probability/log-odds of the prediction not just the classification
+# summaryFunction = twoClassSummary - ensures the summary function returns performance metrics unique to binary classification like AOC/ROC, Precision, Sensitivity, etc.
+# 
+# logisticModel <- train(modelFormula, data = trainData, 
+#                        method = "glm", family = "binomial", 
+#                        trControl = ctrl, 
+#                        metric = "ROC")
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5, repeats = 10,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary)
+
+logisticModel <- train(modelFormula, data = trainData,
+                       method = "glm", family = "binomial",
+                       trControl = ctrl,
+                       metric = "ROC")
+
+summary(logisticModel)
+```
+
+
+```{r}
+
+# Make predictions on the test set
+predictions <- predict(logisticModel, newdata = testData)
+
+# Evaluate the model performance
+confusionMatrix(predictions, testData$target)
+
+#Full model - .92 accuracy
+```
+
+
+

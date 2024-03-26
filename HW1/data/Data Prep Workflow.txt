@@ -1,0 +1,30 @@
+List of Potential Alterations:
+
+- Did not winsor the prediction data
+
+
+--- Outliers Drop Section
+1. Load Data: training_data
+
+2. test/train split: training_data, eval_data
+
+3. Replace 0s to NA: no_zeros_train, no_zeros_eval
+
+4. Drop Outliers: train_outs_drop, eval_outs_drop
+
+5. BoxCox Transform/CenterScale: trainBC_outs_drop, evalBC_outs_drop
+
+6. Impute(Median/Mean): trainBC_outs_drop, evalBC_outs_drop
+
+--- Winsorize Section
+1. Load Data: training_data
+
+2. test/train split: training_data, eval_data
+
+3. Replace 0s to NA: no_zeros_train, no_zeros_eval
+
+4. Winsorize Outliers: train_winsor, eval_winsor
+
+5. BoxCox Transform/CenterScale: trainBC_winsor, evalBC_winsor
+
+6. Impute(Median/Mean): trainBC_winsor, evalBC_winsor

@@ -1,0 +1,132 @@
+---
+title: "HW2_Daniel"
+author: "Daniel Craig"
+date: "2024-03-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 2. Confusion Matrix
+
+**The data set has three key columns we will use:**
+**class: the actual class for the observation**
+**scored.class: the predicted class for the observation (based on a threshold of 0.5)**
+**scored.probability: the predicted probability of success for the observation**
+**Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand the output. In particular, do the rows represent the actual or predicted class? The columns?**
+
+```{r}
+library(tidyverse)
+data = read_csv("https://raw.githubusercontent.com/gsteinmetzsilber/DATA621/main/Assignment%202/classification-output-data.csv")
+```
+
+I'll create a confusion matrix using table().
+
+```{r}
+confusion_matrix = table(data$class, data$scored.class)
+```
+
+```{r}
+dimnames(confusion_matrix) = list(Actual = c("0", "1"), Predicted = c("0", "1"))
+```
+
+|    Below is a function to create the different key statistical measures used for later calculations.
+```{r}
+key_stats = function(actual, predicted) {
+  TN = sum(actual == 0 & predicted == 0)
+  FP = sum(actual == 0 & predicted == 1)
+  FN = sum(actual == 1 & predicted == 0)
+  TP = sum(actual == 1 & predicted == 1)
+  
+  stats = list(TN = TN, FP = FP, FN = FN, TP = TP)
+  return(stats)
+}
+```
+
+
+### 3. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, 
+and returns the accuracy of the predictions.
+$\text{Accuracy} = \frac{𝑇𝑃 + 𝑇𝑁}{𝑇𝑃 + 𝐹𝑃 + 𝑇𝑁 + 𝐹N}$
+
+```{r}
+calc_acc <- function(df, actual, predicted) {
+  actual <- df[[actual]]
+  predicted <- df[[predicted]]
+  
+  stats <- key_stats(actual, predicted)
+  
+  acc <- (stats$TP + stats$TN) / (stats$TP + stats$FP + stats$TN + stats$FN)
+  
+  return(acc)
+}
+
+acc <- calc_acc(data, 'class','scored.class')
+print(acc)
+```
+
+|    An accuracy score of 80% was achieved.
+
+
+
+### 8. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, 
+and returns the F1 score of the predictions.
+$𝐹1 𝑆𝑐𝑜𝑟𝑒 = \frac{2 × 𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 × 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦}{𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 + 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡y}$
+
+|    To accomplish this, functions for Precision and Sensitivity are below:
+
+$P𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 = \frac{𝑇𝑃}{𝑇𝑃 + 𝐹𝑃}$
+
+$S𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦 = \frac{𝑇𝑃}{𝑇𝑃 + 𝐹N}$
+
+```{r}
+calc_prec <- function(df, actual,predicted){
+  actual <- df[[actual]]
+  predicted <- df[[predicted]]
+  
+  stats <- key_stats(actual, predicted)
+  
+  prec <- (stats$TP) / (stats$TP + stats$FP)
+  
+  return(prec)
+}
+```
+
+```{r}
+calc_sens <- function(df, actual,predicted){
+  actual <- df[[actual]]
+  predicted <- df[[predicted]]
+  
+  stats <- key_stats(actual, predicted)
+  
+  sens <- (stats$TP) / (stats$TP + stats$FN)
+  
+  return(sens)
+}
+```
+
+```{r}
+calc_F1 <- function(data, actual,predicted){
+  # actual <- df[[actual]]
+  # predicted <- df[[predicted]]
+  
+  #stats <- key_stats(actual, predicted)
+  
+  prec <- calc_prec(data, actual,predicted)
+  sens <- calc_sens(data, actual,predicted)
+  
+  F1 <- (2 * prec * sens) / (prec + sens)
+  
+  return(F1)
+}
+```
+
+```{r}
+F1_score <- calc_F1(data, 'class','scored.class')
+
+print(F1_score)
+```
+|    Using the functions, we find an F1 Score of .606. A quick blurb on F1_Score, Precision, and Sensitivity. Precision is useful when there is a high cost to having a false positive, for instance a false positive cancer diagnosis, and is used to evaluate how often a false positive is occurring for calculating costs. The priority is to capture as few false positives as possible, it would be awful and expensive to families if the patient went through chemo-therapy and never had cancer to begin with.
+
+|    Sensitivity is used when positive classifications are a high priority and the cost of a false positive is low in comparison, such as malicious network behavior. The priority in sensitivity is to capture as many true positives as possible, even if it means picking up a few false positives.

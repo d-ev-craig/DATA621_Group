@@ -1,47 +1,51 @@
 ---
-title: "HW1_Report"
-author: "Daniel Craig"
+title: 'HW1: Predicting Baseball Wins'
+subtitle: 'https://github.com/d-ev-craig/DATA621_Group/tree/main/HW1'
+author: "Selina Noori, Gavriel Steinmitz-Silber, John Cruz, Shaya Engelman, Daniel
+  Craig"
 date: "2024-02-23"
-output: pdf_document
+output:
+  pdf_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(car)
 ```
-# HW 1 Baseball Metrics
-# Selina Noori, Gavriel Steinmitz-Silber, John Cruz, Shaya Engelman
-  
-  
-  
 ## Data Exploration
 
+|    This data set describes baseball team statistics between the years of 1871 to 2006. The dataset contains 2,276 quantitative observations, documenting pitching, batting, and fielding performances across 17 variables. A quick explanation of each variable is below with their expected impact on predicting wins for a baseball team. All variables were numeric.
 ### Variable Summary
-
 
 ```{r}
 training_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-training-data.csv")
+
 testing_data <- read.csv("https://raw.githubusercontent.com/NooriSelina/Data621/main/moneyball-evaluation-data.csv")
 ```
 
-|    This data set describes baseball team statistics between the years of 1871 to 2006. The dataset contains 2,276 quantitative observations, documenting pitching, batting, and fielding performances across 17 variables. A quick explanation of each variable is below with their expected impact on predicting wins for a baseball team. All variables were numeric.
 
-```{r pressure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+```{r pressure, fig.cap="A caption", out.width = '100%'}
 knitr::include_graphics("C:/Users/dcrai/source/repos/DATA621_Group/HW1/figs/variables.png")
 ```
+\newpage
 
 |    A quick look at distributions with histograms and boxplots reveal a few alarming takeaways:
-|       *TEAM_FIELDING_E: Numerous severe outliers
-|       *TEAM_PITCHING_BB: Numerous severe outliers
-|       *TEAM_PITCHING_H: Numerous severe outliers
-|       *TEAM_PITCHING_SO: Numerous severe outliers
-|       *TEAM_BATTING_H: Some severe outliers
-|       *TEAM_BASERUN_SB: Some outliers
-|       *TEAM_BATTING_3B Some outliers
-/n
-/n
-Outliers are detrimental to a model's ability to predict due to their over-centralizing nature and weight a multiple linear regression model attributes to those observations when predicting.
 
-```{r}
+* TEAM_FIELDING_E: Numerous severe outliers
+* TEAM_PITCHING_BB: Numerous severe outliers
+* TEAM_PITCHING_H: Numerous severe outliers
+* TEAM_PITCHING_SO: Numerous severe outliers
+* TEAM_BATTING_H: Some severe outliers
+* TEAM_BASERUN_SB: Some outliers
+* TEAM_BATTING_3B Some outliers
+
+|    Outliers are detrimental to a model's ability to predict due to their over-centralizing nature and weight a multiple linear regression model attributes to those observations when predicting. In particular, TEAM_FIELDING_E, TEAM_PITCHING_BB, TEAM_PITCHING_H, and TEAM_PITCHING_SO are heavily skewed with long tails due to these outliers.
+  
+  
+|    Bi-modal distributions typically mean that basic mean or median imputation can introduce more bias into the dataset for missing values. Variables TEAM_BATTING_HR, TEAM_BATTING_SO, TEAM_PITCHING_HR all have bi-modal distributions. Observing the boxplots reinforces the significant number of outliers present in the data.
+
+```{r, message= FALSE}
 library(ggplot2)
 library(tidyr)
 library(dplyr)
@@ -49,11 +53,9 @@ library(dplyr)
 training_data %>% select(-INDEX) %>%
   gather(key = "variable", value = "value") %>%  
   ggplot(aes(x = value)) + 
-  geom_density(fill = 'gray') + 
+  geom_density(fill = 'lightblue') + 
   facet_wrap(~ variable, scales = 'free') +
   theme(strip.text = element_text(size = 5))  # Adjust the size as needed
-
-
 ```
 
 
@@ -72,18 +74,15 @@ ggplot(data_long, aes(x = "", y = Value)) +
   theme(strip.text = element_text(size = 5))  
 ```
 
-### Zero Values
-|    Upon further inspection of the data, many records contained 0's instead of NA's as recorded metrics, which were judged by the analysts as unreasonable values. There was also skepticism in whether the outlier values were reasonable or should be treated as errors. Zero values were replaced by NAs for imputation.
+\newpage
 
-### Missing Data
-|    Most columns were not missing data, two columns in particular stand out. TEAM_BASERUN_CS is missing 772 or 33.9% of values. TEAM_BATTING_HBP is missing 2085 or 91.6% of of values.
+### Missing Data & Zero Values
+|    Upon further inspection of the data, many records contained 0's instead of NA's as recorded metrics, which were judged by the analysts as unreasonable values. There was also skepticism in whether the outlier values were reasonable or should be treated as errors. Zero values were replaced by NAs for imputation. Most columns were not missing data, two columns in particular stand out. TEAM_BASERUN_CS is missing 772 or 33.9% of values. TEAM_BATTING_HBP is missing 2085 or 91.6% of of values. 
+|    The threshold for observation removal was set at 50%. If an observation was missing values for 50% or more of its variables, the observation would be removed. No rows were missing more than 50% of their values and none removed. The threshold for variable removal was set at 25%. TEAM_BASERUN_CS and TEAM_BATTING_HBP both exceeded with missing values at 33.96% and 91.6%. Both had little correlation to TARGET_WINS, although had moderate correlation to other variables as will be seen in the next section.
 ```{r}
 missing_counts <- colSums(is.na(training_data))
 
-cat("Missing Data:\n")
-for (variable in names(missing_counts)) {
-  cat("*", variable, ":", missing_counts[variable], "missing values\n")
-}
+knitr::kable(data.frame(missing_counts))
 ```
 ```{r}
 percentMiss <- function(x){sum(is.na(x))/length(x)*100} # Creates percentage of missing values
@@ -93,13 +92,14 @@ sample_pMiss <- apply(training_data,1,percentMiss) # 1 = runs on rows
 ```
 
 ```{r}
-variable_pMiss
+cat("Variable Missing Percentage")
+knitr::kable(variable_pMiss)
 ```
 ```{r}
-sum(sample_pMiss > 50)
+#sum(sample_pMiss > 50)
 ```
-|    No rows were missing more than 50% of their values meaning no rows needed removal. TEAM_BASERUN_CS and TEAM_BATTING_HBP both exceeded 25% of observations missing values at 33.96% and 91.6%. Both had little correlation to TARGET_WINS, although had moderate correlation to other variables as will be seen in the next section.
 
+\newpage
 
 ### Correlation
 |    Correlations between TARGET_WINS and the other variables are generally weak, with the strongest being with TEAM_BATTING_H with a positive 39% rating as expected. Notable negative correlations were limited to TEAM_PITCHING_E at -18% and TEAM_PITCHING_H at -11%. Surprisingly, TEAM_PITCHING_HR was very slightly positively correlated to target wins at 19% which was unexpected. At a glance, the overall correlations of a team's batting related metrics are stronger than the metrics expected to be related to a negative effect. This may suggest that baseball play rewards batting more than not making errors or decreasing the enemy team's abilities after a certain amount.
@@ -113,17 +113,14 @@ ggcorrplot(q, type = "upper", outline.color = "white",
            lab = TRUE, show.legend = FALSE, tl.cex = 5, lab_size = 2) 
 ```
 
-/n
-/n
+\newpage
 
 ## Data Preparation
 
 |    The four main categories that preparation targeted were zero values, missing data, outliers, and skewness. Before any transformations, the training dataset was split on a 70/30 ratio to create a test data set to test models on. TEAM_BASERUN_CS and TEAM_BATTING_HBP are both dropped due to crossing a threshold of 25% missing data used as a general benchmark for removal. Zero values were replaced with NA (Not Applicable) values for imputation.  Any observations that passed a threshold of 50% missing data were dropped as imputation is unreliable with so little data. A BoxCox transformation, centering, and scaling were all performed to help reduce the effect of outliers.
 
 
-|    Outliers were dealt with in two ways for testing. Many of the outliers break historical records and could be considered errors, but without contact with those that gathered the data this cannot be confirmed if they were treated as errors per historical records a large portion of data (roughly 30%) would be dropped. Instead, two methods were used to diminish impact of outliers. The first method was to drop values greater or smaller than 1.5 times the Interquartile Range (IQR) of data. The IQR is the distance between the 25th and 75th percentiles of a data's distribution, effectively holding the majority of observations within it. The second method was to Winsorize values outside 1.5 times the IQR by replacing the outlier with a value in the 5th or 95th percentile of the distribution. Imputation for the dataset where outliers were dropped used mean imputation, except for columns TEAM_BATTING_HR, TEAM_BATTING_SO, TEAM_PITCHING_HR, and TEAM_PITCHING_SO where median imputation was used due to their less-normal behavior. Median imputation should deviate less from a distribution when non-normal.
-
-
+|    Outliers were dealt with in two ways for testing. Many of the outliers break historical records and could be considered errors, but without contact with those that gathered the data this cannot be confirmed. If treated as errors per historical records, a large portion of data (roughly 30%) would be dropped. Instead, two methods were used to diminish impact of outliers. The first method was to drop values greater or smaller than 1.5 times the Interquartile Range (IQR) of data. The IQR is the distance between the 25th and 75th percentiles of a data's distribution, effectively holding the majority of observations within it. The second method was to Winsorize values outside 1.5 times the IQR by replacing the outlier with a value in the 5th or 95th percentile of the distribution. Imputation for the dataset where outliers were dropped used mean imputation, except for columns TEAM_BATTING_HR, TEAM_BATTING_SO, TEAM_PITCHING_HR, and TEAM_PITCHING_SO where median imputation was used due to their less-normal behavior. Median imputation should deviate less from a distribution when non-normal.
 
 ```{r Training Split}
 library(caret)
@@ -191,8 +188,6 @@ limits <- lapply(training_data, calc_outliers)
 
 # Convert list to dataframe
 limits <- do.call(rbind, limits)
-
-
 ```
 
 ```{r Re-name Columns + Drop Outliers}
@@ -208,69 +203,89 @@ row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Bat_H >1152 | Bat_H < 1769 | is.na(Bat_H))
-paste0("Bat_H: ", row_count - nrow(train_outs_drop))
-row_count <- nrow(train_outs_drop) # Resetting Row Count variable to reflect after removal
+#paste0("Bat_H: ", row_count - nrow(train_outs_drop))
+Bat_H_Drop <- row_count - nrow(train_outs_drop) # Resetting Row Count variable to reflect after removal
+row_count <- nrow(train_outs_drop) # reset total number of rows
 
 train_outs_drop <- train_outs_drop %>%
   filter(Bat_2B > 111 | Bat_2B < 371 | is.na(Bat_2B))
-paste0("Bat_2B: ",row_count - nrow(train_outs_drop))
+#paste0("Bat_2B: ",row_count - nrow(train_outs_drop))
+Bat_2B_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>% # Negative values are ignored
   filter(Bat_3B < 130 | is.na(Bat_3B)) 
-paste0("Bat_3B: ", row_count - nrow(train_outs_drop))
+#paste0("Bat_3B: ", row_count - nrow(train_outs_drop))
+Bat_3B <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Bat_HR < 304 | is.na(Bat_HR)) 
-paste0("Bat_HR: ",row_count - nrow(train_outs_drop))
+#paste0("Bat_HR: ",row_count - nrow(train_outs_drop))
+Bat_HR <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Bat_BB > 257 | Bat_BB < 773 | is.na(Bat_BB))
-paste0("Bat_BB: ",row_count - nrow(train_outs_drop))
+#paste0("Bat_BB: ",row_count - nrow(train_outs_drop))
+Bat_BB <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Bat_SO < 1503 | is.na(Bat_SO)) 
-paste0("Bat_SO: ",row_count - nrow(train_outs_drop))
+#paste0("Bat_SO: ",row_count - nrow(train_outs_drop))
+Bat_SO <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Base_SB < 291 | is.na(Base_SB)) 
-paste0("Base_SB: ",row_count - nrow(train_outs_drop))
+#paste0("Base_SB: ",row_count - nrow(train_outs_drop))
+Base_SB_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Pitch_H > 1023 | Pitch_H < 2078 | is.na(Pitch_H) )
-paste0("Pitch_H: ",row_count - nrow(train_outs_drop))
+#paste0("Pitch_H: ",row_count - nrow(train_outs_drop))
+Pitch_H_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Pitch_HR < 300 | is.na(Pitch_HR))
-paste0("Pitch_HR: ",row_count - nrow(train_outs_drop))
+#paste0("Pitch_HR: ",row_count - nrow(train_outs_drop))
+Pitch_HR_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Pitch_BB > 274 | Pitch_BB < 813 | is.na(Pitch_BB))
-paste0("Pitch_BB: ",row_count - nrow(train_outs_drop))
+#paste0("Pitch_BB: ",row_count - nrow(train_outs_drop))
+Pitch_BB_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Pitch_SO > 84 | Pitch_SO < 1498 | is.na(Pitch_SO))
-paste0("Pitch_SO: ",row_count - nrow(train_outs_drop))
+#paste0("Pitch_SO: ",row_count - nrow(train_outs_drop))
+Pitch_SO_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Field_E < 432 | is.na(Field_E))
-paste0("Field_E: ",row_count - nrow(train_outs_drop))
+#paste0("Field_E: ",row_count - nrow(train_outs_drop))
+Field_E_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
 train_outs_drop <- train_outs_drop %>%
   filter(Field_DP > 81 | Field_DP < 214 | is.na(Field_DP))
-paste0("Field_DP: ",row_count - nrow(train_outs_drop))
+#paste0("Field_DP: ",row_count - nrow(train_outs_drop))
+Field_DP_Drop <- row_count - nrow(train_outs_drop)
 row_count <- nrow(train_outs_drop)
 
+drop_frame <- data.frame(Bat_H_Drop, Bat_2B_Drop, Bat_3B, Bat_HR, Bat_BB, Base_SB_Drop, Pitch_H_Drop, Pitch_HR_Drop, Pitch_BB_Drop, Pitch_SO_Drop, Field_E_Drop, Field_DP_Drop)
+
+drop_names <- colnames(drop_frame)
+
+drop_frame2 <- data.frame(Variable = drop_names, Count_Of_Drops = as.numeric(drop_frame[1,]))
+ 
+knitr::kable(drop_frame2)
 ```
 
 ```{r Test Outliers Drop}
@@ -284,73 +299,73 @@ row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Bat_H > 1152 | Bat_H < 1769 | is.na(Bat_H))
-paste0("Bat_H: ", row_count - nrow(eval_outs_drop))
+#paste0("Bat_H: ", row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop) # Resetting Row Count variable to reflect after removal
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Bat_2B > 111 | Bat_2B < 371 | is.na(Bat_2B))
-paste0("Bat_2B: ",row_count - nrow(eval_outs_drop))
+#paste0("Bat_2B: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>% # Negative values are ignored
   filter(Bat_3B < 130 | is.na(Bat_3B)) 
-paste0("Bat_3B: ", row_count - nrow(eval_outs_drop))
+#paste0("Bat_3B: ", row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Bat_HR < 304 | is.na(Bat_HR)) 
-paste0("Bat_HR: ",row_count - nrow(eval_outs_drop))
+#paste0("Bat_HR: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Bat_BB > 257 | Bat_BB < 773 | is.na(Bat_BB))
-paste0("Bat_BB: ",row_count - nrow(eval_outs_drop))
+#paste0("Bat_BB: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Bat_SO < 1503 | is.na(Bat_SO)) 
-paste0("Bat_SO: ",row_count - nrow(eval_outs_drop))
+#paste0("Bat_SO: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Base_SB < 291 | is.na(Base_SB)) 
-paste0("Base_SB: ",row_count - nrow(eval_outs_drop))
+#paste0("Base_SB: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Pitch_H > 1023 | Pitch_H < 2078 | is.na(Pitch_H) )
-paste0("Pitch_H: ",row_count - nrow(eval_outs_drop))
+#paste0("Pitch_H: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Pitch_HR < 300 | is.na(Pitch_HR))
-paste0("Pitch_HR: ",row_count - nrow(eval_outs_drop))
+#paste0("Pitch_HR: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Pitch_BB > 274 | Pitch_BB < 813 | is.na(Pitch_BB))
-paste0("Pitch_BB: ",row_count - nrow(eval_outs_drop))
+#paste0("Pitch_BB: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Pitch_SO > 84 | Pitch_SO < 1498 | is.na(Pitch_SO))
-paste0("Pitch_SO: ",row_count - nrow(eval_outs_drop))
+#paste0("Pitch_SO: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Field_E < 432 | is.na(Field_E))
-paste0("Field_E: ",row_count - nrow(eval_outs_drop))
+#paste0("Field_E: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 eval_outs_drop <- eval_outs_drop %>%
   filter(Field_DP > 81 | Field_DP < 214 | is.na(Field_DP))
-paste0("Field_DP: ",row_count - nrow(eval_outs_drop))
+#paste0("Field_DP: ",row_count - nrow(eval_outs_drop))
 row_count <- nrow(eval_outs_drop)
 
 ```
 
 
-```{r}
+```{r, eval= FALSE}
 train_outs_drop %>% select(-INDEX) %>%
   gather(key = "variable", value = "value") %>%  
   ggplot(aes(x = value)) + 
@@ -359,7 +374,12 @@ train_outs_drop %>% select(-INDEX) %>%
   theme(strip.text = element_text(size = 5))
 ```
 ### Adding Variables
-|    
+|    The style of baseball play has changed a lot over time. For example, strikeouts are far more common today than they were many years ago. It follows that the raw number of batting strikeouts a team has is not especially insightful. Rather, what might be insightful is how a team’s batting strikeouts compare to their pitching strikeouts. As such, we create four such ratios. These variables and their expected relationship to Wins are:
+
+1. TEAM_BATTING_H_TEAM_PITCHING_H_RATIO - Positive Correlation
+2. TEAM_BATTING_HR_TEAM_PITCHING_HR_RATIO - Positive Correlation
+3. TEAM_BATTING_BB_TEAM_PITCHING_BB_RATIO - Positive Correlation
+4. TEAM_BATTING_SO_TEAM_PITCHING_SO_RATIO - Positive Correlation
 
 ```{r}
 train_outs_drop <- train_outs_drop %>%
@@ -378,8 +398,6 @@ eval_outs_drop <- eval_outs_drop %>%
 ```
 
 ```{r}
-
-
 train_winsor <- no_zeros_train %>% select(-INDEX) %>% #training data
   mutate(Bat_H_Pitch_H_Ratio = Bat_H / Pitch_H,
          Bat_HR_Pitch_HR_Ratio = Bat_HR / Pitch_HR,
@@ -395,9 +413,6 @@ eval_winsor <- no_zeros_eval %>% select(-INDEX) %>% #eval data
          )
 ```
 
-
-
-### BoxCox Transformation
 
 ```{r Train Outs Drop BoxCox Transform}
 
@@ -426,7 +441,9 @@ trainBC_outs_lambdas <- rbind(preProcValues_outs$bc$Bat_H$lambda, preProcValues_
 #17 lists in bc
 
 ```
-
+\newpage
+### BoxCox Transformation
+|    To help manage the skewness introduced into the data from the outliers, a BoxCox transformation was introduced. It helped signficiantly. The distributions of the transformed data can be seen below for comparison with the original histograms.
 ```{r Eval Outs Drop BoxCox Transform}
 library(forecast)
 
@@ -532,33 +549,42 @@ preProcValues_evalBC_winsor <- preProcess(evalBC_winsor[-1], method = c("center"
 evalBC_winsor <- predict(preProcValues_evalBC_winsor, evalBC_winsor)
 ```
 
-```{r Check Normality After Transforms, echo = FALSE, eval = FALSE}
-bc_columns = names(trainBC_winsor)
+```{r Check Normality After Transforms, echo = FALSE}
+trainBC_outs_drop[1:14] %>%
+  gather(key = "variable", value = "value") %>%  
+  ggplot(aes(x = value)) + 
+  geom_density(fill = 'lightblue') + 
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5))  # Adjust the size as needed
 
-for (col in bc_columns) {
-  
-  # histogram
-  print(
-    ggplot(trainBC_winsor, aes(x = .data[[col]])) + 
-      geom_histogram(bins = 30) +
-      labs(title = paste("Histogram of", col), x = col, y = "Frequency")
-  )
-  
-  #qq plot
-  qqnorm(trainBC_winsor[[col]], main = paste("Q-Q Plot of", col))
-  qqline(trainBC_winsor[[col]])
-  
-  #Shapiro-Wilk
-  shapiro_test = shapiro.test(trainBC_winsor[col][!is.na(trainBC_winsor[col])]) 
-  print(paste("Shapiro test - ", col, "p-value:", shapiro_test$p.value))
-  
-  #relationship with target varable
-  print(
-    ggplot(trainBC_winsor, aes(x = .data[[col]], y = Wins)) +
-    geom_point() +
-    geom_smooth(method = "lm") +
-    labs(title = "Relationship with TARGET_WINS", x = col, y = "TARGET_WINS"))
-}
+
+
+#bc_columns = names(trainBC_outs_drop[1:15])
+
+# for (col in bc_columns) {
+#   
+#   # histogram
+#   print(
+#     ggplot(trainBC_outs_drop, aes(x = .data[[col]])) + 
+#       geom_histogram(bins = 30) +
+#       labs(title = paste("Histogram of", col), x = col, y = "Frequency")
+#   )
+#   
+  # #qq plot
+  # qqnorm(trainBC_winsor[[col]], main = paste("Q-Q Plot of", col))
+  # qqline(trainBC_winsor[[col]])
+  # 
+  # #Shapiro-Wilk
+  # shapiro_test = shapiro.test(trainBC_winsor[col][!is.na(trainBC_winsor[col])]) 
+  # print(paste("Shapiro test - ", col, "p-value:", shapiro_test$p.value))
+  # 
+  # #relationship with target varable
+  # print(
+  #   ggplot(trainBC_winsor, aes(x = .data[[col]], y = Wins)) +
+  #   geom_point() +
+  #   geom_smooth(method = "lm") +
+  #   labs(title = "Relationship with TARGET_WINS", x = col, y = "TARGET_WINS"))
+#}
 ```
 
 ```{r Impute: Outliers Dropped}
@@ -731,24 +757,278 @@ for (col in names(testBC_winsor)) {
 write_csv(testBC_winsor, "./data/prepped_data_2/testBC_winsor.csv")
 ```
 
-
+\newpage
 
 ## Data Modeling
+|    For modeling techniques, each dataset (outliers-dropped and winsorized) had a model created with all main order and interaction effects and a third model was created including only main effects for the outliers dropped data. Features were removed one at a time based on their p-values and contribution to the model's predictive ability. Only features holding a significance of .01 or lower were kept to control for family-wise error as testing many features for significance can result in false positives. When checking for significant effects from variables, the more of them that are checked the higher the chances are that a false positive is detected. If an interaction was signficiant, but dependent variables were insignficant, the dependent variables were still kept in the model.
+|    The Variance Inflation Factor was reviewed for all models. The Outliers-Dropped model had significantly lower VIF for its variables compared the Winsorized model. The Outliers-Dropped model relied heavily on main effects, while the Winsorized model used many interaction effects. A main-effects-only model was also made and performed roughly as well as the Winsorized model. Multi-colinearity was only apparent in the Winsorized model with high VIF values.
 
 
 ```{r}
-lm_mod_o1 <- lm(Wins ~ Field_E + Field_DP + Base_SB +Bat_2B + Bat_3B + Bat_3B +Bat_H + Bat_BB +Bat_SO, data = trainBC_outs_drop)
-summary(lm_mod_o1)
+main_effects <- lm(Wins ~ Field_E + Field_DP + Base_SB +Bat_2B + Bat_3B + Bat_3B +Bat_H + Bat_BB +Bat_SO, data = trainBC_outs_drop)
+vif_main <- vif(main_effects)
+#summary(main_effects)
 # Only Sign. - .32
 
-lm_mod_all <- lm(Wins ~ ., data = trainBC_outs_drop)
-summary(lm_mod_all)
+#lm_mod_all <- lm(Wins ~ ., data = trainBC_outs_drop)
+#summary(lm_mod_all)
 # All vars - .339
 
-lm_mod_all_int <- lm(Wins ~ (.)^2, data = trainBC_outs_drop)
-summary(lm_mod_all_int)
+#lm_mod_all_int <- lm(Wins ~ (.)^2, data = trainBC_outs_drop)
+#summary(lm_mod_all_int)
 
-anova(lm_mod_all_int)
+#anova(lm_mod_all_int)
 # All Interaction
+```
+```{r Refined Interaction Model}
+
+refined_int_outs <- lm(Wins ~ 
+                         # 3 Stars
+      # Main Effect
+      Field_DP+Field_E+Base_SB+Bat_3B+Bat_BB+Bat_HR+Bat_H+Bat_SO+Bat_2B+Bat_HR+Bat_SO+
+      # Interactions
+      #Bat_H_Pitch_H_Ratio*Bat_BB_Pitch_BB_Ratio+
+      #Field_E*Bat_H_Pitch_H_Ratio+
+      Bat_HR*Base_SB+
+      #Bat_HR*Bat_SO+
+      #Bat_3B*Base_SB+
+      Bat_2B*Field_E+
+      #Bat_2B*Bat_SO+
+      #Bat_SO_Pitch_SO_Ratio+
+                        # 2 Stars
+      #Bat_H_Pitch_H_Ratio:Bat_BB_Pitch_BB_Ratio+
+      #Pitch_H:Pitch_SO+
+      #Base_SB:Pitch_HR+
+      Bat_SO:Field_E+
+      #Bat_SO:Pitch_BB+
+      Bat_BB:Field_DP
+      #Bat_3B:Field_E+
+      #Bat_3B:Field_DP+
+      #Bat_2B:Bat_HR
+                        # 1 Star
+      #Pitch_SO:Bat_SO_Pitch_SO_Ratio
+      #Pitch_HR:Bat_SO_Pitch_SO_Ratio
+      #Bat_SO:Bat_BB_Pitch_BB_Ratio
+      #Bat_BB:Base_SB
+      #Bat_HR:Field_E
+      #Bat_3B:Pitch_BB
+      #Bat_3B:Bat_HR # One Star .02
+      #Bat_2B:Bat_HR_Pitch_HR_Ratio
+      #Bat_H:Field_E
+      #Bat_H:Pitch_SO
+      #Bat_H:Base_SB
+, data = trainBC_outs_drop)
+
+#summary(refined_int_outs)
+#aov(refined_int_outs)
+
+# to remove
+## Bat_H_Pitch_H_Ratio
+# Bat_BB_Pitch_BB_Ratio
+## Bat_H_Pitch_H_Ratio:Bat_BB_Pitch_BB_Ratio
+## Bat_HR:Bat_SO
+## Base_SB:Bat_3B 
+## Bat_SO:Bat_2B
+
+```
+```{r VIF Refined_int_outs}
+vif_outs <- vif(refined_int_outs)
+
+# Print VIF values
+```
+```{r Winsor Testing}
+winsor_mod_all <- lm(Wins ~ (.)^2, data = trainBC_winsor)
+#summary(winsor_mod_all)
+#anova(winsor_mod_all)
+
+# All Interaction
+```
+
+```{r Refined Winsor}
+winsor_refined <- lm(Wins ~
+          # Required Main Effects
+            #Bat_H_Pitch_H_Ratio +
+            #Bat_BB_Pitch_BB_Ratio +
+            Pitch_SO +
+            Bat_SO_Pitch_SO_Ratio+
+          # 3 Stars
+            #Bat_H_Pitch_H_Ratio*Bat_BB_Pitch_BB_Ratio+
+            Field_E + # required main
+            Base_SB +
+            Bat_3B +
+            
+            # Added after ANOVA
+            Bat_H + # Required Main
+            #Bat_2B+
+            #Bat_HR+
+            Bat_BB+
+            #Bat_SO+
+            Pitch_H+
+            Pitch_HR+
+            Pitch_BB+# required main
+            Bat_H*Bat_HR_Pitch_HR_Ratio+
+            #Bat_H*Bat_SO_Pitch_SO_Ratio+ # one star
+            #Bat_2B*Bat_SO+ # 2 star
+            
+            #Bat_2B*Pitch_H+
+            
+            Bat_2B*Field_E+ # 2 star
+            #Bat_3B*Bat_HR+ # 0 sign
+            # Bat_3B*Bat_SO+
+            #Bat_3B*Base_SB+ # 0 sign
+            Bat_HR*Bat_BB+ # 2 star
+            Bat_HR*Base_SB+ # 3 star
+            #Bat_HR*Pitch_H+ 0 sign
+            #Bat_HR*Bat_SO_Pitch_SO_Ratio+ 0 sign
+            #Bat_BB*Pitch_H+ #1 star
+            #Bat_BB*Pitch_SO+ 0 sign
+            #Bat_SO*Pitch_BB+ 0 sign
+            #Bat_SO*Field_E+ 0 sign
+            # Bat_H_Pitch_H_Ratio*Bat_SO_Pitch_SO_Ratio+ 0 sign
+            
+            
+          # 2 Stars
+            Pitch_SO*Field_E +
+            Pitch_BB*Bat_SO_Pitch_SO_Ratio +
+            #Bat_SO*Pitch_BB +
+            #Bat_H*Pitch_SO +
+            #Bat_H_Pitch_H_Ratio + # Required for interaction with Bat_BB_Pitch_BB_Ratio
+            Field_DP +
+            #Bat_H*Bat_3B+
+            #Bat_H*Field_DP+
+            #Bat_2B*Pitch_HR+
+            Bat_2B*Bat_H_Pitch_H_Ratio+
+            #Bat_HR*Field_E+
+            #Bat_BB*Field_E+
+            #Pitch_HR*Field_E+
+            Pitch_SO*Field_E+ # sign but no improvement in R2
+            
+            
+          # 1 Stars
+          #Field_E:Bat_SO_Pitch_SO_Ratio+
+#Pitch_SO:Bat_BB_Pitch_BB_Ratio+
+#Pitch_SO:Bat_H_Pitch_H_Ratio+
+#Bat_SO:Bat_BB_Pitch_BB_Ratio+
+#Bat_SO:Bat_H_Pitch_H_Ratio+
+#Bat_BB:Pitch_SO+
+#Bat_3B:Bat_BB_Pitch_BB_Ratio+
+#Bat_3B:Bat_H_Pitch_H_Ratio+
+#Bat_3B:Bat_SO+
+#Bat_2B:Pitch_SO+
+Bat_H:Bat_HR_Pitch_HR_Ratio+
+#Bat_H:Bat_SO+
+Bat_BB_Pitch_BB_Ratio
+,data = trainBC_winsor)
+
+#summary(winsor_refined)
+```
+```{r}
+vif_winsor <- vif(winsor_refined)
+
+# Print VIF values
+#vif_values
+```
+```{r}
+model1_eval <- predict(refined_int_outs, newdata = evalBC_outs_drop)
+model2_eval <- predict(winsor_refined, newdata = evalBC_winsor)
+model3_eval <- predict(main_effects, newdata = evalBC_outs_drop)
+```
+
+|    The three models achieved the following results in testing, with the Outliers Dropped model to be chosen for prediction: 
+
+```{r}
+y_true_winsor <- evalBC_winsor$Wins
+y_true_imputed <- evalBC_outs_drop$Wins
+
+# Calculate metrics for each model
+metrics <- data.frame(
+  Model = c("Outliers Dropped", "Winsorized", "Main Effects"),
+  RMSE = c(
+    sqrt(mean((y_true_imputed - model1_eval)^2)),
+    sqrt(mean((y_true_winsor - model2_eval)^2)),
+    sqrt(mean((y_true_imputed - model3_eval)^2))
+  ),
+  MSE = c(
+    mean((y_true_imputed - model1_eval)^2),
+    mean((y_true_winsor- model2_eval)^2),
+    mean((y_true_imputed - model3_eval)^2)
+  ),
+  MAE = c(
+    mean(abs(y_true_imputed - model1_eval)),
+    mean(abs(y_true_winsor - model2_eval)),
+    mean(abs(y_true_imputed - model3_eval))
+  ),
+  Adj_R_squared = c(
+    summary(lm(y_true_imputed ~ model1_eval))$adj.r.squared,
+    summary(lm(y_true_winsor ~ model2_eval))$adj.r.squared,
+    summary(lm(y_true_imputed ~ model3_eval))$adj.r.squared
+  )
+)
+
+knitr::kable(metrics)
+```
+
+|    The Outliers Dropped model served to have the best metrics across all RMSE, MSE, MAE, and R-Squared by a significant margin. The F-Statistic was significantly high at 72.26 confirming that the model predicts better than an intercept only model with no variables. The Residuals vs Fitted plot seems relatively okay with a slight oblong nature although some relationship is likely missing. The QQ Plot follows normality well. The Scale v Location plot is not perfectly horizontal and shares the same oblong nature as the Residauls vs Fitted plot. This suggests that homoscedasticiy is relatively intact with equal variance between Residuals and Fitted observations. The Residuals vs Leverage plot highlights 2 - 3 points that altered predictions significantly. Considering the original data and its significant number of outliers, this is quite respectable as it only leverages the model slightly. Due to the highest accuracy in testing and its lower VIF values, the Outliers Dropped model was chosen for prediction.
+
+```{r Normality Plots}
+par(mfrow=c(2,2))
+plot(refined_int_outs)
+```
+\newpage
+
+### Coefficients Discussion
+|    Ultimately, the relationships between wins and the used predictors are below. Surprisingly TEAM_FIELDING_DP had a negative relationship with Wins. It may be because a double play implies that many batters were able to get on bases the negative effect of poor pitching is not adequately captured. Another surprising relationship is TEAM_BATTING_2B having a negative effect on Wins. It is odd that both double play related metrics have a negative relationship with wins. It may be a point to bring up with data collectors for further insight. It is also interesting to note that scoring related variables are prevalent, yet defensive variables are unimpactful. Exact metrics can be seen below. 
+
+```{r}
+relationships <- data.frame(Variable = 
+                              c("TEAM_FIELDING_DP","TEAM_FIELDING_E","TEAM_BASERUN_SB",
+                                "TEAM_BATTING_3B","TEAM_BATTING_BB","TEAM_BATTING_HR",
+                                "TEAM_BATTING_H","TEAM_BATTING_SO","TEAM_BATTING_2B"),
+                            Defintion = 
+                              c("Double Plays","Errors","Stolen Bases",
+                                "Triples by Batters","Walks by batters","Homeruns by batters",
+                                "Base Hits by batters","Strikeouts by batters","Doubles by batters"),
+                            Model_Effect = 
+                              c("Moderately Negative","Heavily Negative","Moderatly Positive",
+                                "Moderately Positive","Moderately Positive","Moderately Positive",
+                                "Moderatly Positive","Moderately Negative","Moderately Negative")
+                            )
+
+inter_relations <- data.frame(Variable_Interaction = c("TEAM_BASERUN_SB * TEAM_BATTING_HR","TEAM_FIELDING_E * TEAM_BATTING_2B", "TEAM_FIELDING_E * TEAM_BATTING_SO","TEAM_FIELDING_DP * TEAM_BATTING_BB" ),
+                              Model_Effect = c("Moderately Negative","Moderatly Positive","Moderatly Positive",
+                                "Slightly Positive")
+                              )
+knitr::kable(relationships)
+knitr::kable(inter_relations)
+```
+```{r}
+summary(refined_int_outs)
+vif_outs
+```
+```{r}
+#summary(refined_int_outs)$coefficients
+```
+\newpage
+
+### Details for Other Models
+
+
+```{r}
+cat("****Main Effects Summary***** \n\n")
+summary(main_effects)
+cat("\n*****Main Effects VIF***** \n\n")
+vif_main
+
+cat("\n*****Winsor Summary*****\n\n")
+summary(winsor_refined)
+cat("\n*****Winsor VIF*****\n\n")
+vif_winsor
+
+```
+
+```{r Predictions}
+predictions <- data.frame("Wins" = round(predict(refined_int_outs, newdata = testBC_outs_drop)))
+
+write_csv(predictions, "./data/predictions.csv")
 ```
 

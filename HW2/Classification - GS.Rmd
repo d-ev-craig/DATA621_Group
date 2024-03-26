@@ -1,0 +1,109 @@
+---
+title: "621 Assignment 2 - GS"
+author: "Gavriel Steinmetz-Silber"
+date: "2024-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 2. Confusion Matrix
+
+**The data set has three key columns we will use:**
+**class: the actual class for the observation**
+**scored.class: the predicted class for the observation (based on a threshold of 0.5)**
+**scored.probability: the predicted probability of success for the observation**
+**Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand the output. In particular, do the rows represent the actual or predicted class? The columns?**
+
+```{r}
+library(tidyverse)
+data = read_csv("https://raw.githubusercontent.com/gsteinmetzsilber/DATA621/main/Assignment%202/classification-output-data.csv")
+```
+
+I'll create a confusion matrix using table().
+
+```{r}
+confusion_matrix = table(data$class, data$scored.class)
+print(confusion_matrix)
+```
+
+The rows represent the actual classes, and the columns represent the predicted classes. The diagonal conveys the true predictions (119 true negatives, and 27 true positives). To clarify the matter, I'll name the rows and columns:
+
+```{r}
+dimnames(confusion_matrix) = list(Actual = c("0", "1"), Predicted = c("0", "1"))
+print(confusion_matrix)
+```
+
+### 4. Classification Error Rate
+
+**Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the classification error rate of the predictions**
+
+\[\text{Classification Error Rate} = \frac{FP + FN}{TP + TN + FP + FN}\]
+
+First, I can just create a function that calculates all the key statistics: 
+
+```{r}
+key_stats = function(actual, predicted) {
+  TN = sum(actual == 0 & predicted == 0)
+  FP = sum(actual == 0 & predicted == 1)
+  FN = sum(actual == 1 & predicted == 0)
+  TP = sum(actual == 1 & predicted == 1)
+  
+  stats = list(TN = TN, FP = FP, FN = FN, TP = TP)
+  return(stats)
+}
+```
+
+Now I can leverage the key_stats() function to create new functions that will allow me to calculate classification metrics. The task at hand is classification error rate:
+
+```{r}
+calc_cer = function(df, actual, predicted) {
+  actual = df[[actual]]
+  predicted = df[[predicted]]
+  stats = key_stats(actual, predicted)
+  
+  cer = (stats$FP + stats$FN) / (stats$TP + stats$TN + stats$FP + stats$FN)
+  return(cer)
+}
+```
+
+And now let's calculate the classification error rate for our particular case: 
+
+```{r}
+cer = calc_cer(data, "class", "scored.class")
+print(cer)
+```
+
+
+### 9. F1 Bounds
+
+**What are the bounds on the F1 score? Show that the F1 score will always be between 0 and 1.**
+
+As long as the F1 is defined, its value must be greater than zero and less than or equal to 1. First, let's consider the formula for F1:
+
+\[\text{F1 Score} = \frac{2 \times \text{Precision} \times \text{Sensitivity}}{\text{Precision} + \text{Sensitivity}}\]
+
+The key is that both precision and sensitivity are between 0 and 1.
+
+This is because \[\text{Precision} = \frac{TP}{TP + FP}\]
+
+In the best case scenario, there are no false positives, the numerator equals the denominator, and the precision score is therefore 1.
+In the worst case scenario, there are no true positives, the numerator is 0, and the precision score is therefore 0. 
+
+Similarly, \[\text{Sensitivity} = \frac{TP}{TP + FN}\]
+In the best case scenario, there are no false negatives, the numerator equals the denominator, and the sensitivity score is therefore 1.
+In the worst case scenario, there are no true positives, the numerator is 0, and the sensitivity score is therefore 0. 
+
+I ignore the case where both precision and sensitivity are 0, since then there would be no F1 score defined at all. 
+
+Let's see how small we can make the F1 score: Well, we can have either the precision score or the sensitivity score equal 0. In that case, the numerator equals 0, and so the F1 score likewise equals 0. However, we can never get an F1 score less than 0 since if the precision score and sensitivity score are both positive then their product (even multiplied by 2) is positive, as is their sum. It follows that the lower bound for the F1 score is 0.
+
+Now let's see how large we can make the F1 score: The product of two numbers between 0 and 1 is always less than both numbers, but the sum of those two numbers is always greater than either number. The difference between the product and sum is greatest closest to 0. So let's see what happens when we try to maximize the F1 score by making *both* the precision score and the sensitivity score 1:
+
+\[\text{F1 Score} = \frac{2 \times \text{Precision} \times \text{Sensitivity}}{\text{Precision} + \text{Sensitivity}}\]
+\[\text{F1 Score} = \frac{2 \times \text{1} \times \text{1}}{\text{1} + \text{1}} = 1\] 
+
+And so the bounds on the F1 score (as long as it's defined) are 0 and 1. 
+
