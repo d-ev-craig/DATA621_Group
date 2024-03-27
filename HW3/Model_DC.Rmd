@@ -21,11 +21,13 @@ library(ROCR)
 ```
 
 ```{r}
-url <- "https://raw.githubusercontent.com/Shayaeng/DATA621_Group/main/HW3/Provided%20data/crime-training-data_modified.csv"
+url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW3/data/crime-training-data_modified.csv"
+eval_url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW3/data/crime-evaluation-data_modified.csv"
 
-test_url <- 
+ 
 train <- read.csv(url)
-test <-
+eval <- read.csv(eval_url)
+
 set.seed(123)
 ```
 Modelling will 
@@ -48,6 +50,27 @@ desired_order <- c("zn_transformed", "indus", "chas", "nox_transformed", "rm", "
 
 train_clean <- train_clean[, desired_order]
 ```
+
+```{r}
+# Perform transformations with only logarithmic and square root transformations
+eval_clean <- eval %>%
+  mutate(dis_transformed = log(dis),
+         lstat_transformed = log(lstat),
+         zn_transformed = log(zn + 1),
+         nox_transformed = log(nox),
+         age_transformed = sqrt(age),
+         ptratio_transformed = sqrt(ptratio))
+
+eval_clean <- eval_clean[, !colnames(eval_clean) %in% c("dis", "lstat", "age", "ptratio", "zn", "nox")]
+
+# Rearrange columns for consistency 
+desired_order <- c("zn_transformed", "indus", "chas", "nox_transformed", "rm", "age_transformed", 
+                   "dis_transformed", "rad", "tax", "ptratio_transformed", 
+                   "lstat_transformed", "medv")
+
+eval_clean <- eval_clean[, desired_order]
+```
+
 
 ## Modeling
 
@@ -245,7 +268,7 @@ coefs <- coef(logisticModel$finalModel)
 
 
 
-|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of variance. Through backward elimination two models were selected. Nox_transformed, rad, and tax were used as core variables in both models. The second model included attempting a Principal Components Analysis transformation to transform the weak variables and use the single most useful principal component. This second model did not show this component as significant. Overall, the models used and their accuracies can be seen as follows, assuming coefficients are placed through :
+|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of variance. Through backward elimination two models were selected. Nox_transformed, rad, and tax were used as core variables in both models. The second model included attempting a Principal Components Analysis transformation to transform the weak variables and use the single most useful principal component. This second model did not show this component as significant. Overall, the models used and their accuracies can be seen as follows, assuming coefficients are placed through the logit-odds formula:
 
 $$\text{Simple Model: } y = 10.49 + 17.12\text{nox_trans }+ .56\text{rad } + -.01\text{tax}$$
 ```{r Metrics}
@@ -287,10 +310,15 @@ abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
 
 ```
 
+|    Both models showed high results, but the Simple Model had better percentages across the board. Classification Error Rate measures how often the model predicted incorrectly, whether it be a false positive or a false negative. Precision measures how often the model correctly predicts the positives in the positive class. Sensitivity measures how well a model correctly predicts positives in all observations. Specificity measures how well a model correctly predicts the negatives in the negatives class. The F1 score is an average of precision and sensitivity, and is typically more useful than precision to measure a classification model, particularly if one class is more prevalent than another. The AUC score measures the rate at which a random positive example is would be more likely to be classified as positive than a negative example. The confusion matrix shows the exact breakdown of how many observations were classified as positive or negative and how many of them were actually positive or negative. The ROC Curve shows the changing rates of True Positives and False Positives as different thresholds of rounding are used to classify as a positive or negative. Depending on the goals of this assignment, these metrics can be used to pick different models. If the goal were to be highly sensitive to high-crime areas to identify areas a patrol should be sent to deter crime, valuing the Precision metric over others would be useful. This is assuming that sending a patrol is not a high cost endeavor.
+*Since the Simple Model was more parsimonious, and easier to understand, with little loss in accuracy compared to the Interaction Model, it was used to generate predictions. The PCA model complicated the model more with less accuracy in most measurements and was not used to generate predictions.*
 
 ## Generate Predictions
 
 ```{r}
-preds <- predict(logisticModel, newdata = test)
+preds <- predict(logisticModel, newdata = eval_clean)
+preds_convert <- ifelse(preds=="No",0,1)
+preds_convert
+#write.csv(preds_convert, file = "C:\\Users\\dcrai\\source\\repos\\DATA621_Group\\HW3\\data\\predictions.csv")
 ```
 
