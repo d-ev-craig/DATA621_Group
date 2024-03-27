@@ -1,0 +1,438 @@
+
+---
+title: "Model_DC"
+author: "Daniel Craig"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Loading required libraries 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)  # For Box-Cox transformation
+library(dplyr) # For data manipulation
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(ggcorrplot)
+library(caret)
+library(ROCR)
+```
+
+```{r}
+url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW3/data/crime-training-data_modified.csv"
+eval_url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW3/data/crime-evaluation-data_modified.csv"
+
+ 
+train <- read.csv(url)
+eval <- read.csv(eval_url)
+
+set.seed(123)
+```
+Modelling will 
+
+It's worthwhile to have both transformed and non-transformed variables in the dataframe
+
+```{r}
+# Perform transformations with only logarithmic and square root transformations
+train_all <- train %>%
+  mutate(dis_transformed = log(dis),
+         lstat_transformed = log(lstat),
+         zn_transformed = log(zn + 1), #adding 1 because log(0) is undefined
+         nox_transformed = log(nox),
+         age_transformed = sqrt(age),
+         ptratio_transformed = sqrt(ptratio))
+```
+
+While we're at it, let's perform the same transformations on the test set 
+```{r}
+eval_all <- eval %>%
+  mutate(dis_transformed = log(dis),
+         lstat_transformed = log(lstat),
+         zn_transformed = log(zn + 1), #adding 1 because log(0) is undefined
+         nox_transformed = log(nox),
+         age_transformed = sqrt(age),
+         ptratio_transformed = sqrt(ptratio))
+```
+
+
+## Modeling
+
+|    For modelling, we start with using all available variables and evaluate their significance by the amount of variation they explain using ANOVA and their F Stat. We have expectations that variables with high correlation to *target* will be highly significant a chart for reference of expected highly significant variables:
+```{r}
+hsig <- data.frame(Variable_Name = c('Indus','Nox_Transformed','Dis_Transformed','Rad','Tax'),
+                   Correlation = c(.60, .75,-0.66,.63,.61))
+
+kable(hsig)
+```
+
+
+```{r HighCor, echo = FALSE}
+q <- cor(train_all)
+condition <- abs(q) > 0.6
+
+q_filter <- q
+q_filter[!condition] <- NA
+#q_filter <- q_filter['target', c('indus','nox_transformed','dis_transformed','rad','tax')]
+#q_filter
+
+q_filter['target',]
+```
+
+
+
+
+```{r ReFactor Split}
+#set.seed(123)
+# Convertin target variable to factor
+train_all$target <- ifelse(train_all$target==0, "No","Yes") #if we leave it as 0 or 1s, or just use factor, we get errors
+train_all$target <- factor(train_all$target)
+
+
+# Split the data into train and test sets
+trainIndex <- createDataPartition(train_all$target, p = 0.7, list = FALSE)
+trainData <- train_all[trainIndex, ]
+testData <- train_all[-trainIndex, ]
+
+```
+
+
+### Model 1: PCA
+
+```{r PCA, echo = FALSE}
+# Perform PCA on the weak variables
+pca_result <- prcomp(train_all[, c("ptratio_transformed", "dis_transformed" , "age_transformed" , "medv", "chas" , "zn_transformed", "indus", "lstat_transformed" , "rm")], scale. = TRUE)
+
+summary(pca_result)
+# Extract the first principal component
+pc1 <- pca_result$x[, 1]
+
+# Create a new data frame with the strong variables and the principal component
+pca_clean <- data.frame(target = train_all$target, nox_transformed = train_all$nox_transformed, rad = train_all$rad, tax = train_all$tax, pc1 = pc1)
+```
+
+```{r PCA Split}
+#set.seed(123)
+
+# Split the data into train and test sets
+pcaIndex <- createDataPartition(pca_clean$target, p = 0.7, list = FALSE)
+pcaTrain <- pca_clean[pcaIndex, ]
+pcaTest <- pca_clean[-pcaIndex, ]
+
+pcaFormula <- target ~  nox_transformed + rad + tax + pc1
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5, repeats = 10,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary)
+
+pcaModel <- train(pcaFormula, data = pcaTrain,
+                       method = "glm", family = "binomial",
+                       trControl = ctrl,
+                       metric = "ROC")
+
+summary(pcaModel)
+
+# Make predictions on the test set
+predictions <- predict(pcaModel, newdata = pcaTest)
+
+# Evaluate the model performance
+pca_cm <- caret::confusionMatrix(predictions, pcaTest$target)
+```
+
+```{r PCA Scores}
+predicted_probs <- predict(pcaModel, newdata = pcaTest, type = "prob")[, 2]
+actual_labels <- pcaTest$target
+
+# Create prediction object
+pred_pca <- prediction(predicted_probs, actual_labels)
+
+# Calculate ROC curve
+roc_perf_pca <- performance(pred_pca, measure = "tpr", x.measure = "fpr")
+
+# Plot ROC curve
+plot(roc_perf_pca, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+# Calculate AUC
+auc_pca <- performance(pred_pca, measure = "auc")
+pca_auc_value <- auc_pca@y.values[[1]]
+cat("AUC:", round(pca_auc_value, 4), "\n")
+```
+
+### Model 2: Simple Model
+
+```{r}
+
+# Define the model formula
+modelFormula <- target ~  nox_transformed + rad + tax 
+#  nox_transformed + rad  + tax + ptratio_transformed  + dis_transformed + age_transformed + medv+ chas + zn_transformed + indus + lstat_transformed + rm 
+
+#medv?
+
+#modelFormula_2 <- target ~ (.)^2
+
+
+#logitModel <- glm(modelFormula, family = binomial (link = "logit"), data = trainData)
+#anova(logitModel)
+
+
+# CARET Method
+#logisticModel <- train(modelFormula_2, data = trainData, method = "glm", family = "binomial")
+
+# ctrl <- trainControl(method = "repeatedcv", 
+#                      number = 5, repeats = 10,
+#                      classProbs = TRUE,
+#                      summaryFunction = twoClassSummary)
+# classProbs = TRUE - returns the probability/log-odds of the prediction not just the classification
+# summaryFunction = twoClassSummary - ensures the summary function returns performance metrics unique to binary classification like AOC/ROC, Precision, Sensitivity, etc.
+# 
+# logisticModel <- train(modelFormula, data = trainData, 
+#                        method = "glm", family = "binomial", 
+#                        trControl = ctrl, 
+#                        metric = "ROC")
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5, repeats = 10,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary)
+
+logisticModel <- train(modelFormula, data = trainData,
+                       method = "glm", family = "binomial",
+                       trControl = ctrl,
+                       metric = "ROC")
+
+summary(logisticModel)
+```
+
+
+```{r}
+
+# Make predictions on the test set
+predictions <- predict(logisticModel, newdata = testData)
+
+# Evaluate the model performance
+cm <- caret::confusionMatrix(predictions, testData$target)
+
+#Full model - .92 accuracy
+# - rm = .92
+# - lstat = .928
+# - indus = .935
+# - zn_transformed = .9137
+# - chas = .9209
+# - medv = .9209
+# - age = .9209
+# - dis = .9209
+# - ptrat = .893
+# - tax = .9137
+# - rad = .87
+# - nox = 80
+```
+
+
+```{r}
+predicted_probs <- predict(logisticModel, newdata = testData, type = "prob")[, 2]
+actual_labels <- testData$target
+
+# Create prediction object
+pred <- prediction(predicted_probs, actual_labels)
+
+# Calculate ROC curve
+roc_perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+
+# Plot ROC curve
+plot(roc_perf, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+# Calculate AUC
+auc <- performance(pred, measure = "auc")
+auc_value <- auc@y.values[[1]]
+cat("AUC:", round(auc_value, 4), "\n")
+```
+
+### Model 3
+
+This time, we would like to use interaction terms, but we're not sure whether to use interaction terms of the transformeed or non-transformed variables. We also would prefer to not use interaction terms between one transformed and another non-transformed variable as this makes interpretability quite challenging. Finally, if a transformed variable and a non-transformed variable are similarly significant, we'll default to using the non-transformed version for sake of simplicity:
+
+```{r}
+basic = glm(data=trainData, family=binomial, formula=target ~ .)
+summary(basic)
+```
+
+
+Given this summary, and given our intuitions about the relationships between variables, we'll explore the following interactions: 
+
+1. zn* indus: neither appear significant, but perhaps crime pops up in different ways in areas more highly zoned for residential use when there's a lot of non-retail businesses.
+2. chas * nox_transformed: particularly because of the binary nature of chas, but maybe the *combination* of environmental quality and proximity to the Charles River influences crime (we're thinking about property values).
+3. chas * dis_transformed: similarly, the combination of distance to Charles River and distance to employment centers might impact crime in a special way.
+4. nox_transformed * dis_transformed: bad air quality might impact crime more, for example, if especially far from employment centers.
+5. rm * lstat: this speaks to the combination of housing situations and socioeconomic conditions impact crime.
+6. age_transformed * rad: older neighborhoods with better/worse access to highways might well experience crime differently.
+7. tax * lstat_transformed: for example, if those in low-income areas also have to pay high taxes, we might expect more crime.
+8. ptratio_transformed * medv: this speaks to the combination of educational quality (or at least resources) combines with home values to influence crime. 
+
+```{r}
+full = glm(target ~ zn * indus + chas * nox_transformed + chas * dis_transformed +
+             nox_transformed * dis_transformed + rm * lstat + age_transformed * rad +
+             tax * lstat_transformed + ptratio_transformed * medv,
+             family = binomial(link = "logit"), data = trainData)
+
+summary(full)
+```
+
+
+Only some variables are statistically significant; we'd much prefer a simpler model, so we add backward elimination. 
+
+```{r}
+interaction_backward = step(full, direction = "backward")
+
+```
+
+The final model has only 7 variables, 6 of which are interaction terms. This model was created with glm, which means that we need to do type = "response" to get the predicted probabilities for the evaluation set. We would then use some threshold to classify predictions. The default threshold is 0.5, but if we're anyways setting a threshold, we may as well optimize that threshold: 
+
+```{r}
+library(InformationValue) #this can be installed with: devtools::install_github("selva86/InformationValue")
+predicted_probs <- predict(interaction_backward, testData, type = "response")
+ideal_cutoff <- optimalCutoff(actuals = as.numeric(testData$target) - 1, predictedScores = predicted_probs, optimiseFor = "Both")
+print(ideal_cutoff)
+
+```
+
+Now we use that threshold to make predictions and construct a confusion matrix:
+```{r}
+binary_predictions <- ifelse(predicted_probs > ideal_cutoff, "Yes", "No")
+binary_predictions_factor <- factor(binary_predictions, levels = levels(testData$target))
+inter_cm = caret::confusionMatrix(binary_predictions_factor, testData$target)
+inter_cm
+
+
+
+```
+
+And we again plot the ROC curve:
+
+```{r}
+actual_labels <- as.numeric(testData$target) - 1
+
+pred <- prediction(predicted_probs, actual_labels)
+
+# Calculate ROC curve
+inter_roc_perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+
+# Plot ROC curve
+plot(inter_roc_perf, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  
+
+# Calculate AUC
+auc <- performance(pred, measure = "auc")
+inter_auc_value <- auc@y.values[[1]]
+cat("AUC:", round(inter_auc_value, 4), "\n")
+```
+
+
+### Model Comparison 
+
+```{r}
+coefs <- coef(logisticModel$finalModel)
+```
+
+
+
+|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of variance. Through backward elimination two models were selected. Nox_transformed, rad, and tax were used as core variables in both models. The second model included attempting a Principal Components Analysis transformation to transform the weak variables and use the single most useful principal component. This second model did not show this component as significant. Overall, the models used and their accuracies can be seen as follows, assuming coefficients are placed through the logit-odds formula:
+
+
+**Simple Model:** 
+$$
+\log\left(\frac{p}{1 - p}\right) = 10.49 + 17.12 \, \text{nox_trans} + 0.56 \, \text{rad} - 0.01 \, \text{tax}
+$$
+
+
+```{r Metrics}
+mets <- data.frame('Class_Error_Rate' = 1-cm$overall['Accuracy'],
+                   t(cm$byClass[c('Accuracy','Precision', 'Sensitivity', 'Specificity','F1')]),
+                   AUC = auc_value,
+                   row.names = '')
+ 
+
+mets <-round(mets[,-2], digits =2)
+kable(mets)
+```
+```{r}
+# Plot ROC curve
+plot(roc_perf, main = "Model 1: ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+```
+
+```{r}
+coefs_pca <- coef(pcaModel$finalModel)
+```
+**PCA Model:** $$\log\left(\frac{p}{1 - p}\right)  = 10.49 + 18.81\text{nox_trans }+ .70\text{rad }  -.01\text{tax} + .10\text{pc1}$$
+
+
+```{r PCA Metrics}
+pca_mets <- data.frame('Class_Error_Rate' = 1-pca_cm$overall['Accuracy'],
+                   t(pca_cm$byClass[c('Accuracy','Precision', 'Sensitivity', 'Specificity','F1')]),
+                   AUC = pca_auc_value,
+                   row.names = '')
+ 
+
+pca_mets <-round(pca_mets[,-2], digits =2)
+kable(pca_mets)
+```
+```{r}
+# Plot ROC curve
+plot(roc_perf_pca, main = "Model 2: ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+```
+
+As for the third model, the Interaction Model, its equation is: 
+
+**Interaction Model:** 
+$$
+\begin{align*}
+\log\left(\frac{p}{1 - p}\right) = &-73.89614 - 0.10415(\text{zn}) - 9.36481(\text{chas}) + 44.09606(\text{nox_transformed}) - 2.84960(\text{dis_transformed}) + \\
+& 2.04746(\text{rm}) + 1.32175(\text{lstat}) - 0.55321(\text{age_transformed}) - 0.60241(\text{rad}) + 0.08510(\text{tax}) + \\
+& 10.68699(\text{lstat_transformed}) + 13.29307(\text{ptratio_transformed}) + 1.92650(\text{medv}) - 15.01157(\text{chas:nox_transformed}) - \\
+& 10.81333(\text{nox_transformed:dis_transformed}) - 0.21539(\text{rm:lstat}) + 0.17194(\text{age_transformed:rad}) - \\
+& 0.03567(\text{tax:lstat_transformed}) - 0.43344(\text{ptratio_transformed:medv})
+\end{align*}
+$$
+
+That equation is difficult to look at, and that's a major problem; despite the promising performance of this model, its lack of interpretability will ultimately disqualify it as a viable model. Still, here are those promising statistics:
+ 
+```{r}
+inter_mets <- data.frame('Class_Error_Rate' = 1-inter_cm$overall['Accuracy'],
+                   t(inter_cm$byClass[c('Accuracy','Precision', 'Sensitivity', 'Specificity','F1')]),
+                   AUC = inter_auc_value,
+                   row.names = '')
+ 
+
+inter_mets <-round(inter_mets[,-2], digits =2)
+kable(inter_mets)
+```
+ 
+Finally, we see the ROC curve:
+
+```{r}
+plot(roc_perf, main = "Model 3: ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+```
+
+
+
+
+|    In terms of the first two modes, both models showed high results, but the Simple Model had better percentages across the board. Classification Error Rate measures how often the model predicted incorrectly, whether it be a false positive or a false negative. Precision measures how often the model correctly predicts the positives in the positive class. Sensitivity measures how well a model correctly predicts positives in all observations. Specificity measures how well a model correctly predicts the negatives in the negatives class. The F1 score is an average of precision and sensitivity, and is typically more useful than precision to measure a classification model, particularly if one class is more prevalent than another. The AUC score measures the rate at which a random positive example is would be more likely to be classified as positive than a negative example. The confusion matrix shows the exact breakdown of how many observations were classified as positive or negative and how many of them were actually positive or negative. The ROC Curve shows the changing rates of True Positives and False Positives as different thresholds of rounding are used to classify as a positive or negative. Depending on the goals of this assignment, these metrics can be used to pick different models. If the goal were to be highly sensitive to high-crime areas to identify areas a patrol should be sent to deter crime, valuing the Precision metric over others would be useful. This is assuming that sending a patrol is not a high cost endeavor.
+*Since the Simple Model was more parsimonious, and easier to understand, with little loss in accuracy compared to the Interaction Model, it was used to generate predictions. The PCA model complicated the model more with less accuracy in most measurements and was not used to generate predictions.*
+
+## Generate Predictions
+
+```{r}
+preds <- predict(logisticModel, newdata = eval_all)
+preds_convert <- ifelse(preds=="No",0,1)
+preds_convert
+#write.csv(preds_convert, file = "C:\\Users\\dcrai\\source\\repos\\DATA621_Group\\HW3\\data\\predictions.csv")
+```
+
