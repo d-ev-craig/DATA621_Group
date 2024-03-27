@@ -22,9 +22,11 @@ library(ROCR)
 
 ```{r}
 url <- "https://raw.githubusercontent.com/Shayaeng/DATA621_Group/main/HW3/Provided%20data/crime-training-data_modified.csv"
+
+test_url <- 
 train <- read.csv(url)
-dim(train)
-head(train)
+test <-
+set.seed(123)
 ```
 Modelling will 
 ```{r}
@@ -56,9 +58,9 @@ hsig <- data.frame(Variable_Name = c('Indus','Nox_Transformed','Dis_Transformed'
 
 kable(hsig)
 ```
-|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of 
 
-```{r, echo = FALSE}
+
+```{r HighCor, echo = FALSE}
 q <- cor(train_clean)
 condition <- abs(q) > 0.6
 
@@ -73,10 +75,10 @@ q_filter['target',]
 
 
 
-```{r}
+```{r ReFactor Split}
 #set.seed(123)
 # Convertin target variable to factor
-train_clean$target <- ifelse(train_clean$target==0, "No","Yes")
+train_clean$target <- ifelse(train_clean$target==0, "No","Yes") #if we leave it as 0 or 1s, or just use factor, we get errors
 train_clean$target <- factor(train_clean$target)
 
 
@@ -86,8 +88,6 @@ trainData <- train_clean[trainIndex, ]
 testData <- train_clean[-trainIndex, ]
 
 ```
-
-
 
 ```{r PCA, echo = FALSE}
 # Perform PCA on the weak variables
@@ -106,8 +106,8 @@ pca_clean <- data.frame(target = train_clean$target, nox_transformed = train_cle
 
 # Split the data into train and test sets
 pcaIndex <- createDataPartition(pca_clean$target, p = 0.7, list = FALSE)
-pcaTrain <- pca_clean[trainIndex, ]
-pcaTest <- pca_clean[-trainIndex, ]
+pcaTrain <- pca_clean[pcaIndex, ]
+pcaTest <- pca_clean[-pcaIndex, ]
 
 pcaFormula <- target ~  nox_transformed + rad + tax + pc1
 
@@ -127,7 +127,27 @@ summary(pcaModel)
 predictions <- predict(pcaModel, newdata = pcaTest)
 
 # Evaluate the model performance
-confusionMatrix(predictions, pcaTest$target)
+pca_cm <- confusionMatrix(predictions, pcaTest$target)
+```
+
+```{r PCA Scores}
+predicted_probs <- predict(pcaModel, newdata = pcaTest, type = "prob")[, 2]
+actual_labels <- pcaTest$target
+
+# Create prediction object
+pred_pca <- prediction(predicted_probs, actual_labels)
+
+# Calculate ROC curve
+roc_perf_pca <- performance(pred, measure = "tpr", x.measure = "fpr")
+
+# Plot ROC curve
+plot(roc_perf_pca, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+# Calculate AUC
+auc_pca <- performance(pred_pca, measure = "auc")
+pca_auc_value <- auc_pca@y.values[[1]]
+cat("AUC:", round(auc_value_pca, 4), "\n")
 ```
 
 
@@ -182,7 +202,7 @@ summary(logisticModel)
 predictions <- predict(logisticModel, newdata = testData)
 
 # Evaluate the model performance
-confusionMatrix(predictions, testData$target)
+cm <- confusionMatrix(predictions, testData$target)
 
 #Full model - .92 accuracy
 # - rm = .92
@@ -219,5 +239,58 @@ auc <- performance(pred, measure = "auc")
 auc_value <- auc@y.values[[1]]
 cat("AUC:", round(auc_value, 4), "\n")
 ```
+```{r}
+coefs <- coef(logisticModel$finalModel)
+```
 
+
+
+|    Baseline models showed that Nox and Rad were both highly significant and served to explain the majority of variance. Through backward elimination two models were selected. Nox_transformed, rad, and tax were used as core variables in both models. The second model included attempting a Principal Components Analysis transformation to transform the weak variables and use the single most useful principal component. This second model did not show this component as significant. Overall, the models used and their accuracies can be seen as follows, assuming coefficients are placed through :
+
+$$\text{Simple Model: } y = 10.49 + 17.12\text{nox_trans }+ .56\text{rad } + -.01\text{tax}$$
+```{r Metrics}
+mets <- data.frame('Class_Error_Rate' = 1-cm$overall['Accuracy'],
+                   t(cm$byClass[c('Accuracy','Precision', 'Sensitivity', 'Specificity','F1')]),
+                   AUC = auc_value,
+                   row.names = '')
+ 
+
+mets <-round(mets[,-2], digits =2)
+kable(mets)
+```
+```{r}
+# Plot ROC curve
+plot(roc_perf, main = "Model 1: ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+```
+
+```{r}
+coefs_pca <- coef(pcaModel$finalModel)
+```
+$$\text{PCA Model: } y = 10.49 + 18.81\text{nox_trans }+ .70\text{rad } + -.01\text{tax} + .10\text{pc1}$$
+
+```{r PCA Metrics}
+pca_mets <- data.frame('Class_Error_Rate' = 1-pca_cm$overall['Accuracy'],
+                   t(pca_cm$byClass[c('Accuracy','Precision', 'Sensitivity', 'Specificity','F1')]),
+                   AUC = pca_auc_value,
+                   row.names = '')
+ 
+
+pca_mets <-round(pca_mets[,-2], digits =2)
+kable(pca_mets)
+```
+```{r}
+# Plot ROC curve
+plot(roc_perf_pca, main = "ROC Curve", colorize = TRUE)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal line for reference
+
+```
+
+
+## Generate Predictions
+
+```{r}
+preds <- predict(logisticModel, newdata = test)
+```
 
