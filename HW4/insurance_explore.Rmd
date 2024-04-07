@@ -1,0 +1,396 @@
+---
+title: "Auto Insurance Claims"
+author: "John Cruz, Noori Selina, Shaya Engelman, Daniel Craig, Gavriel Steinmetz-Silber"
+date: "2024-04-02"
+header-includes:
+- \usepackage{pdflscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+output:
+  pdf_document: default
+  html_document:
+    code_folding: hide
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Required Libraries
+
+```{r library, warning=FALSE, message=FALSE, class.source = "fold-show"}
+library(tidyverse)
+library(janitor)
+library(kableExtra)
+library(latex2exp)
+library(psych)
+library(scales)
+library(stringr)
+library(ggcorrplot)
+```
+
+## Introduction
+
+We will explore, analyze and model a dataset containing approximately 8000 records representing customers at an auto insurance company. Each record has two response variables. The first response variable, `TARGET_FLAG`, is a `1` or a `0` (zero). A `1` means that the person was in a car crash. A `0` means that the person was not in a car crash. The second response variable is `TARGET_AMT`. This value is zero if the person did not crash their car, however, if they did crash their car, this number will be a value greater than zero.
+
+<br>      
+
+```{r table-def, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+table_def <- "
+| **VARIABLE**     | **DEFINITION**                           | **THEORETICAL EFFECT**                                                                            |
+|:------------------|:-----------------------------------------|:--------------------------------------------------------------------------------------------------|
+| `INDEX`          | Identification Variable (do not use)     | None                                                                                              |
+| `TARGET_FLAG`    | Was Car in a crash? 1=YES 0=NO           | None                                                                                              |
+| `TARGET_AMT`     | If car was in a crash, what was the cost | None                                                                                              |
+| `AGE`            | Age of Driver                            | Very young people tend to be risky. Maybe very old people also.                                   |
+| `BLUEBOOK`       | Value of Vehicle                         | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_AGE`        | Vehicle Age                              | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_TYPE`       | Type of Car                              | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_USE`        | Vehicle Use                              | Commercial vehicles are driven more, so might increase probability of collision                   |
+| `CLM_FREQ`       | # Claims (Past 5 Years)                  | The more claims you filed in the past, the more you are likely to file in the future              |
+| `EDUCATION`      | Max Education Level                      | Unknown effect, but in theory more educated people tend to drive more safely                      |
+| `HOMEKIDS`       | # Children at Home                       | Unknown effect                                                                                    |
+| `HOME_VAL`       | Home Value                               | In theory, home owners tend to drive more responsibly                                             |
+| `INCOME`         | Income                                   | In theory, rich people tend to get into fewer crashes                                             |
+| `JOB`            | Job Category                             | In theory, white collar jobs tend to be safer                                                     |
+| `KIDSDRIV`       | # Driving Children                       | When teenagers drive your car, you are more likely to get into crashes                            |
+| `MSTATUS`        | Marital Status                           | In theory, married people drive more safely                                                       |
+| `MVR_PTS`        | Motor Vehicle Record Points              | If you get lots of traffic tickets, you tend to get into more crashes                             |  
+| `OLDCLAIM`       | Total Claims (Past 5 Years)              | If your total payout over the past five years was high, this suggests future payouts will be high | 
+| `PARENT1`        | Single Parent                            | Unknown effect                                                                                    |
+| `RED_CAR`        | A Red Car                                | Urban legend says that red cars (especially red sports cars) are more risky. Is that true?        |
+| `REVOKED`        | License Revoked (Past 7 Years)           | If your license was revoked in the past 7 years, you probably are a more risky driver.            |
+| `SEX`            | Gender                                   | Urban legend says that women have less crashes then men. Is that true?                            | 
+| `TIF`            | Time in Force                            | People who have been customers for a long time are usually more safe.                             |
+| `TRAVTIME`       | Distance to Work                         | Long drives to work usually suggest greater risk                                                  |
+| `URBANICITY`     | Home/Work Area                           | Unknown                                                                                           |
+| `YOJ`            | Years on Job                             | People who stay at a job for a long time are usually more safe                                    |
+"
+cat(table_def)
+```
+
+<br> 
+
+## Data Exploration {.tabset}
+
+### Import Data
+
+When we import the training and evaluation dataset, we have 26 columns representing each variable we have defined above. We also have 8,161 total rows for the training set and 2,141 rows for the evaluation set. As we glance through the values in each column, we can see there is some data wrangling that will needs to be performed prior to evaluating any summary statistics. 
+
+```{r import-data, echo=FALSE}
+url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/insurance_training_data.csv"
+eval_url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/insurance-evaluation-data.csv"
+
+train <- read.csv(url)
+eval <- read.csv(eval_url)
+```
+
+```{r data-glance-train, echo=FALSE}
+kbl(head(train), caption = "Training Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote(general_title = "Dimensions: ",
+          TeX(paste0(nrow(train), " x ", ncol(train)))) %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+```{r data-glance-eval, echo=FALSE}
+kbl(head(eval), caption = "Evaluation Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote(general_title = "Dimensions: ",
+          TeX(paste0(nrow(eval), " x ", ncol(eval)))) %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+### Data Wrangling
+
+- We can drop the `INDEX` column as it provides no value to our analysis. **Any changes applied to the training set will be similary applied to the evaluation set, unless otherwise noted.**
+
+```{r drop-index, echo=FALSE}
+train <-
+  train |>
+  select(-INDEX)
+
+eval <-
+  eval |>
+  select(-INDEX)
+
+kbl(head(train), caption = "Training Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote("Dropped `INDEX` column:") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+<br>  
+
+- The `INCOME`, `HOME_VAL`, `BLUEBOOK` and `OLDCLAIM` columns are in a currency string format and needs to be changed to a numeric value we can work with. 
+
+```{r string-dollar-numeric, echo=FALSE}
+preview <-
+  train |>
+  select(INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(INCOME = as.numeric(gsub("[^\\d]", "", train$INCOME, perl = TRUE)),
+         HOME_VAL = as.numeric(gsub("[^\\d]", "", train$HOME_VAL, perl = TRUE)),
+         BLUEBOOK = as.numeric(gsub("[^\\d]", "", train$BLUEBOOK, perl = TRUE)),
+         OLDCLAIM = as.numeric(gsub("[^\\d]", "", train$OLDCLAIM, perl = TRUE)))
+
+eval <-
+  eval |>
+  mutate(INCOME = as.numeric(gsub("[^\\d]", "", eval$INCOME, perl = TRUE)),
+         HOME_VAL = as.numeric(gsub("[^\\d]", "", eval$HOME_VAL, perl = TRUE)),
+         BLUEBOOK = as.numeric(gsub("[^\\d]", "", eval$BLUEBOOK, perl = TRUE)),
+         OLDCLAIM = as.numeric(gsub("[^\\d]", "", eval$OLDCLAIM, perl = TRUE)))
+
+preview <-
+  train |>
+  select(INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+<br>  
+
+- `MSTATUS`, `SEX`, `EDUCATION`, `JOB`, `CAR_TYPE`, `URBANICITY` has extra characters `z_` that need to be removed from their binary (`No`) or categorical values (ex. `SUV`). We also have `EDUCATION` having the `<` within it as well. 
+
+```{r remove-string, echo=FALSE}
+preview <-
+  train |>
+  select(MSTATUS, SEX, EDUCATION, JOB, CAR_TYPE, URBANICITY)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(MSTATUS = str_remove(MSTATUS, "^z_"),
+         SEX = str_remove(SEX, "^z_"),
+         EDUCATION = str_remove(EDUCATION, "^z_|\\<"),
+         JOB = str_remove(JOB, "^z_"),
+         CAR_TYPE = str_remove(CAR_TYPE, "^z_"),
+         URBANICITY = str_remove(URBANICITY, "^z_"))
+
+eval <-
+  eval |>
+  mutate(MSTATUS = str_remove(MSTATUS, "^z_"),
+         SEX = str_remove(SEX, "^z_"),
+         EDUCATION = str_remove(EDUCATION, "^z_|\\<"),
+         JOB = str_remove(JOB, "^z_"),
+         CAR_TYPE = str_remove(CAR_TYPE, "^z_"),
+         URBANICITY = str_remove(URBANICITY, "^z_"))
+
+preview <-
+  train |>
+  select(MSTATUS, SEX, EDUCATION, JOB, CAR_TYPE, URBANICITY)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position") 
+```
+
+- The `URBANICITY` has two values within it as noted in our definitions above. The first value is their home area and the second is their work area. So a person could live in a highly rural area, but works in a rural area. We will separate this column into two new columns, while retaining the original one for flexibility later on. 
+
+```{r urbanictiy-split, echo=FALSE}
+preview <-
+  train |>
+  select(URBANICITY)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train<-
+  train |>
+  separate(URBANICITY, sep="/ ", c("HOME_AREA", "WORK_AREA"), remove = FALSE)
+
+eval<-
+  eval |>
+  separate(URBANICITY, sep="/ ", c("HOME_AREA", "WORK_AREA"), remove = FALSE)
+
+preview <-
+  train |>
+  select(URBANICITY, HOME_AREA, WORK_AREA)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+- Here we will change some of our variables' values into factors. 
+  - `PARENT1`: Yes/No
+  - `MSTATUS`: Yes/No
+  - `SEX`: M/F
+  - `RED_CAR`: Yes/No (Fix capital punctuation of these values)
+  - `REVOKED`: Yes/No
+  - `EDUCATION`: High School, Bachelors, Masters, PhD (Ordered Factor as each level has an ordered precedence of completing it.)
+
+```{r factors, echo=FALSE}
+preview <-
+  train |>
+  select(PARENT1, MSTATUS, SEX, RED_CAR, REVOKED, EDUCATION)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(PARENT1 = as.factor(PARENT1), 
+         MSTATUS = as.factor(MSTATUS), 
+         SEX = as.factor(SEX), 
+         RED_CAR = as.factor(str_to_title(RED_CAR)), 
+         REVOKED = as.factor(REVOKED), 
+         EDUCATION = ordered(as.factor(EDUCATION), levels=c("High School", "Bachelors", "Masters", "PhD")))
+
+eval <-
+  eval |>
+  mutate(PARENT1 = as.factor(PARENT1), 
+         MSTATUS = as.factor(MSTATUS), 
+         SEX = as.factor(SEX), 
+         RED_CAR = as.factor(str_to_title(RED_CAR)), 
+         REVOKED = as.factor(REVOKED), 
+         EDUCATION = ordered(as.factor(EDUCATION), levels=c("High School", "Bachelors", "Masters", "PhD")))
+
+preview <-
+  train |>
+  select(PARENT1, MSTATUS, SEX, RED_CAR, REVOKED, EDUCATION)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+### Summary Statistics
+
+We have an average customer age of 44.79. Their average income is almost \$62k while their home value is approximately \$155k. For cars in a crash there is an average cost of \$1500. 
+
+```{r summary, echo=FALSE}
+desc_train <- describe(train, omit = TRUE)
+
+kbl(desc_train, digits=2) |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")  %>%
+  kableExtra::landscape()
+```
+
+
+### Visualizations
+
+```{r cat-cont-variables, echo=FALSE}
+## Split dataset into categorical and continuous variables
+train_cont <-
+  train |>
+  select(rownames(desc_train))
+
+train_cat <-
+  train |>
+  select(-rownames(desc_train))
+```
+
+
+**Density**
+
+We can get a better idea of the distributions and skewness by plotting our variables. We have a normal distribution for `AGE`. As for our response variable `TARGET_FLAG`, it clearly shows the logit function between zero and one. Other plots show significant right skewness for `BLUEBOOK`, `INCOME`, `MVR_PTS`, `OLDCLAIM`, `TARGET_AMT`, `TIF` and `TRAVTIME`. We also have some bimodal distributions for `CAR_AGE`, `HOME_VAL` and `YOJ`. We would need to perform some transformations on these variables, and possibly consider grouping the bimodal variables. 
+
+<br>
+
+```{r density, echo=FALSE, warning=FALSE}
+train_cont |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 20, fill = '#4E79A7', color = 'black') + 
+  stat_density(geom = "line", color = "red") +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw()
+```
+
+\blandscape
+
+**Bar Plots**
+
+Our bar plots show us how our categorical data is divided up. 
+
+  - Most of the car types we have are either `SUV` or `Minivan`. 
+  - We see that most drivers highest education is `High School` or `Bachelors`
+  - The drivers predominately live/work in `Highly Urban/Urban` areas. 
+
+```{r bar, warning=FALSE, echo=FALSE, fig.height = 5, fig.width = 10}
+train_cat |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(y = value)) + 
+  geom_bar(aes(x = after_stat(count)), bins = 20, fill = '#4E79A7', color = 'black') +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw() +
+  labs(y = "") 
+```
+
+\elandscape
+
+**Box Plots**
+
+Our box plots show us there are some outliers to be dealt with. We can see the `BLUEBOOK` value of cars have some quite pricey vehicles being insured. We also see how some of our variables where they are countable numbers such as `HOMEKIDS` and `KIDSDRIV` where parents have a child, but they are not driving yet. 
+
+```{r boxplot, warning=FALSE, echo=FALSE}
+train_cont %>%
+  gather(key = "Variable", value = "Value") |>
+  ggplot(aes(x = "", y = Value)) +  
+  geom_boxplot(fill = "#4E79A7") +
+  facet_wrap(~ Variable, scales = "free") + 
+  labs(x = NULL, y = "Value") +  
+  theme(strip.text = element_text(size = 5))
+```
+
+
+**Correlation Matrix**
+
+We have some moderately strong correlations between our variables. This will have to be addressed with when we build our models.
+
+  - `KIDSDRIV` and `HOMEKIDS`: They should have some multicollinearity as if you have children, they may be of age to drive already
+  - `MVR_PTS` and `CLM_FREQ`: This association should have multicollinearity as if you have higher motor vehicle points accumulated from negative driving habits, you may be more likely to have accidents and require to file more claims than the average driver. 
+  - `CLM_FREQ` and `OLDCLAIM`: There would be some multicollinearity as when you have more claims filed, you should have an older claim amount as a value.
+  - `TARGET_AMT` and `TARGET_FLAG`: If you were in a crash, you should have how much that accident was valued at. 
+
+```{r corr-plot, echo=FALSE}
+q <- cor(train_cont)
+
+ggcorrplot(q, type = "upper", outline.color = "white",
+           ggtheme = theme_classic,
+           colors = c("#F28E2B", "white", "#4E79A7"),
+           lab = TRUE, show.legend = F, tl.cex = 5, lab_size = 3) 
+```
+
+### Missing Values
+
+We can see we have some columns missing values. 
+
+  - `AGE`: Only missing a few values and given that it is a normally distributed variable, we have many options to impute them
+  - `YOJ`: We are missing a lot of values for how many year people have been at their job
+  - `INCOME`: We don't have how much money they are making in a year. It could be that they are not working. 
+  - `HOME_VAL`: These missing values may be under the assumption they don't own a home and possibly renting
+  - `CAR_AGE`: The highest amount of values we don't have is how old the car is. 
+
+```{r missing-values, echo=FALSE}
+missing_val <-
+  train %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  select_if(function(.) last(.) != 0)
+
+kbl(missing_val) |>
+    kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+
+
+

@@ -1,0 +1,874 @@
+---
+title: "Auto Insurance Claims"
+author: "John Cruz, Noori Selina, Shaya Engelman, Daniel Craig, Gavriel Steinmetz-Silber"
+date: "2024-04-02"
+header-includes:
+- \usepackage{pdflscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+output:
+  pdf_document: default
+  html_document:
+    code_folding: hide
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Required Libraries
+
+```{r library, warning=FALSE, message=FALSE, class.source = "fold-show"}
+
+library(janitor)
+library(kableExtra)
+library(latex2exp)
+library(psych)
+library(scales)
+library(stringr)
+library(ggcorrplot)
+library(tidyverse)
+
+```
+
+## Introduction
+
+We will explore, analyze and model a dataset containing approximately 8000 records representing customers at an auto insurance company. Each record has two response variables. The first response variable, `TARGET_FLAG`, is a `1` or a `0` (zero). A `1` means that the person was in a car crash. A `0` means that the person was not in a car crash. The second response variable is `TARGET_AMT`. This value is zero if the person did not crash their car, however, if they did crash their car, this number will be a value greater than zero.
+
+<br>      
+
+```{r table-def, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+table_def <- "
+| **VARIABLE**     | **DEFINITION**                           | **THEORETICAL EFFECT**                                                                            |
+|:------------------|:-----------------------------------------|:--------------------------------------------------------------------------------------------------|
+| `INDEX`          | Identification Variable (do not use)     | None                                                                                              |
+| `TARGET_FLAG`    | Was Car in a crash? 1=YES 0=NO           | None                                                                                              |
+| `TARGET_AMT`     | If car was in a crash, what was the cost | None                                                                                              |
+| `AGE`            | Age of Driver                            | Very young people tend to be risky. Maybe very old people also.                                   |
+| `BLUEBOOK`       | Value of Vehicle                         | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_AGE`        | Vehicle Age                              | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_TYPE`       | Type of Car                              | Unknown effect on probability of collision, but probably effect the payout if there is a crash    |
+| `CAR_USE`        | Vehicle Use                              | Commercial vehicles are driven more, so might increase probability of collision                   |
+| `CLM_FREQ`       | # Claims (Past 5 Years)                  | The more claims you filed in the past, the more you are likely to file in the future              |
+| `EDUCATION`      | Max Education Level                      | Unknown effect, but in theory more educated people tend to drive more safely                      |
+| `HOMEKIDS`       | # Children at Home                       | Unknown effect                                                                                    |
+| `HOME_VAL`       | Home Value                               | In theory, home owners tend to drive more responsibly                                             |
+| `INCOME`         | Income                                   | In theory, rich people tend to get into fewer crashes                                             |
+| `JOB`            | Job Category                             | In theory, white collar jobs tend to be safer                                                     |
+| `KIDSDRIV`       | # Driving Children                       | When teenagers drive your car, you are more likely to get into crashes                            |
+| `MSTATUS`        | Marital Status                           | In theory, married people drive more safely                                                       |
+| `MVR_PTS`        | Motor Vehicle Record Points              | If you get lots of traffic tickets, you tend to get into more crashes                             |  
+| `OLDCLAIM`       | Total Claims (Past 5 Years)              | If your total payout over the past five years was high, this suggests future payouts will be high | 
+| `PARENT1`        | Single Parent                            | Unknown effect                                                                                    |
+| `RED_CAR`        | A Red Car                                | Urban legend says that red cars (especially red sports cars) are more risky. Is that true?        |
+| `REVOKED`        | License Revoked (Past 7 Years)           | If your license was revoked in the past 7 years, you probably are a more risky driver.            |
+| `SEX`            | Gender                                   | Urban legend says that women have less crashes then men. Is that true?                            | 
+| `TIF`            | Time in Force                            | People who have been customers for a long time are usually more safe.                             |
+| `TRAVTIME`       | Distance to Work                         | Long drives to work usually suggest greater risk                                                  |
+| `URBANICITY`     | Home/Work Area                           | Unknown                                                                                           |
+| `YOJ`            | Years on Job                             | People who stay at a job for a long time are usually more safe                                    |
+"
+cat(table_def)
+```
+
+<br> 
+
+## Data Exploration {.tabset}
+
+### Import Data
+
+When we import the training and evaluation dataset, we have 26 columns representing each variable we have defined above. We also have 8,161 total rows for the training set and 2,141 rows for the evaluation set. As we glance through the values in each column, we can see there is some data wrangling that will needs to be performed prior to evaluating any summary statistics. 
+
+```{r import-data, echo=FALSE}
+url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/insurance_training_data.csv"
+eval_url <- "https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/insurance-evaluation-data.csv"
+
+train <- read.csv(url)
+eval <- read.csv(eval_url)
+```
+
+```{r data-glance-train, echo=FALSE}
+kbl(head(train), caption = "Training Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote(general_title = "Dimensions: ",
+          TeX(paste0(nrow(train), " x ", ncol(train)))) %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+```{r data-glance-eval, echo=FALSE}
+kbl(head(eval), caption = "Evaluation Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote(general_title = "Dimensions: ",
+          TeX(paste0(nrow(eval), " x ", ncol(eval)))) %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+### Data Wrangling
+
+- We can drop the `INDEX` column as it provides no value to our analysis. **Any changes applied to the training set will be similary applied to the evaluation set, unless otherwise noted.**
+
+
+
+```{r drop-index, echo=FALSE}
+train <- 
+  train |>
+  select(-INDEX)
+
+eval <- 
+  eval |>
+  select(-INDEX)
+
+kbl(head(train), caption = "Training Set") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  footnote("Dropped `INDEX` column:") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+<br>  
+
+- The `INCOME`, `HOME_VAL`, `BLUEBOOK` and `OLDCLAIM` columns are in a currency string format and needs to be changed to a numeric value we can work with. 
+
+```{r string-dollar-numeric, echo=FALSE}
+preview <-
+  train |>
+  select(INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(INCOME = as.numeric(gsub("[^\\d]", "", train$INCOME, perl = TRUE)),
+         HOME_VAL = as.numeric(gsub("[^\\d]", "", train$HOME_VAL, perl = TRUE)),
+         BLUEBOOK = as.numeric(gsub("[^\\d]", "", train$BLUEBOOK, perl = TRUE)),
+         OLDCLAIM = as.numeric(gsub("[^\\d]", "", train$OLDCLAIM, perl = TRUE)))
+
+eval <-
+  eval |>
+  mutate(INCOME = as.numeric(gsub("[^\\d]", "", eval$INCOME, perl = TRUE)),
+         HOME_VAL = as.numeric(gsub("[^\\d]", "", eval$HOME_VAL, perl = TRUE)),
+         BLUEBOOK = as.numeric(gsub("[^\\d]", "", eval$BLUEBOOK, perl = TRUE)),
+         OLDCLAIM = as.numeric(gsub("[^\\d]", "", eval$OLDCLAIM, perl = TRUE)))
+
+preview <-
+  train |>
+  select(INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+<br>  
+
+- `MSTATUS`, `SEX`, `EDUCATION`, `JOB`, `CAR_TYPE`, `URBANICITY` has extra characters `z_` that need to be removed from their binary (`No`) or categorical values (ex. `SUV`). We also have `EDUCATION` having the `<` within it as well. 
+
+```{r remove-string, echo=FALSE}
+preview <-
+  train |>
+  select(MSTATUS, SEX, EDUCATION, JOB, CAR_TYPE, URBANICITY)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(MSTATUS = str_remove(MSTATUS, "^z_"),
+         SEX = str_remove(SEX, "^z_"),
+         EDUCATION = str_remove(EDUCATION, "^z_|\\<"),
+         JOB = str_remove(JOB, "^z_"),
+         CAR_TYPE = str_remove(CAR_TYPE, "^z_"),
+         URBANICITY = str_remove(URBANICITY, "^z_"))
+
+eval <-
+  eval |>
+  mutate(MSTATUS = str_remove(MSTATUS, "^z_"),
+         SEX = str_remove(SEX, "^z_"),
+         EDUCATION = str_remove(EDUCATION, "^z_|\\<"),
+         JOB = str_remove(JOB, "^z_"),
+         CAR_TYPE = str_remove(CAR_TYPE, "^z_"),
+         URBANICITY = str_remove(URBANICITY, "^z_"))
+
+preview <-
+  train |>
+  select(MSTATUS, SEX, EDUCATION, JOB, CAR_TYPE, URBANICITY)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position") 
+```
+
+- The `URBANICITY` has two values within it as noted in our definitions above. The first value is their home area and the second is their work area. So a person could live in a highly rural area, but works in a rural area. We will separate this column into two new columns, while retaining the original one for flexibility later on. 
+
+```{r urbanictiy-split, echo=FALSE}
+preview <-
+  train |>
+  select(URBANICITY)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train<-
+  train |>
+  separate(URBANICITY, sep="/ ", c("HOME_AREA", "WORK_AREA"), remove = FALSE)
+
+eval<-
+  eval |>
+  separate(URBANICITY, sep="/ ", c("HOME_AREA", "WORK_AREA"), remove = FALSE)
+
+preview <-
+  train |>
+  select(URBANICITY, HOME_AREA, WORK_AREA)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+- Here we will change some of our variables' values into factors. 
+  - `PARENT1`: Yes/No
+  - `MSTATUS`: Yes/No
+  - `SEX`: M/F
+  - `RED_CAR`: Yes/No (Fix capital punctuation of these values)
+  - `REVOKED`: Yes/No
+  - `EDUCATION`: High School, Bachelors, Masters, PhD (Ordered Factor as each level has an ordered precedence of completing it.)
+
+```{r factors, echo=FALSE}
+preview <-
+  train |>
+  select(PARENT1, MSTATUS, SEX, RED_CAR, REVOKED, EDUCATION)
+
+kbl(head(preview), caption = "Training Set: Before") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
+train <-
+  train |>
+  mutate(PARENT1 = as.factor(PARENT1), 
+         MSTATUS = as.factor(MSTATUS), 
+         SEX = as.factor(SEX), 
+         RED_CAR = as.factor(str_to_title(RED_CAR)), 
+         REVOKED = as.factor(REVOKED), 
+         EDUCATION = ordered(as.factor(EDUCATION), levels=c("High School", "Bachelors", "Masters", "PhD")))
+
+eval <-
+  eval |>
+  mutate(PARENT1 = as.factor(PARENT1), 
+         MSTATUS = as.factor(MSTATUS), 
+         SEX = as.factor(SEX), 
+         RED_CAR = as.factor(str_to_title(RED_CAR)), 
+         REVOKED = as.factor(REVOKED), 
+         EDUCATION = ordered(as.factor(EDUCATION), levels=c("High School", "Bachelors", "Masters", "PhD")))
+
+preview <-
+  train |>
+  select(PARENT1, MSTATUS, SEX, RED_CAR, REVOKED, EDUCATION)
+
+kbl(head(preview), caption = "Training Set: After") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+### Summary Statistics
+
+We have an average customer age of 44.79. Their average income is almost \$62k while their home value is approximately \$155k. For cars in a crash there is an average cost of \$1500. 
+
+```{r summary, echo=FALSE}
+desc_train <- describe(train, omit = TRUE)
+
+kbl(desc_train, digits=2) |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")  %>%
+  kableExtra::landscape()
+```
+
+
+
+### Visualizations
+
+```{r cat-cont-variables, echo=FALSE}
+## Split dataset into categorical and continuous variables
+train_cont <-
+  train |>
+  select(rownames(desc_train))
+
+train_cat <-
+  train |>
+  select(-rownames(desc_train))
+```
+
+
+**Density**
+
+We can get a better idea of the distributions and skewness by plotting our variables. We have a normal distribution for `AGE`. As for our response variable `TARGET_FLAG`, it clearly shows the logit function between zero and one. Other plots show significant right skewness for `BLUEBOOK`, `INCOME`, `MVR_PTS`, `OLDCLAIM`, `TARGET_AMT`, `TIF` and `TRAVTIME`. We also have some bimodal distributions for `CAR_AGE`, `HOME_VAL` and `YOJ`. We would need to perform some transformations on these variables, and possibly consider grouping the bimodal variables. 
+
+<br>
+
+```{r density, echo=FALSE, warning=FALSE}
+train_cont |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 20, fill = '#4E79A7', color = 'black') + 
+  stat_density(geom = "line", color = "red") +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw()
+```
+
+\blandscape
+
+**Bar Plots**
+
+Our bar plots show us how our categorical data is divided up. 
+
+  - Most of the car types we have are either `SUV` or `Minivan`. 
+  - We see that most drivers highest education is `High School` or `Bachelors`
+  - The drivers predominately live/work in `Highly Urban/Urban` areas. 
+
+```{r bar, warning=FALSE, echo=FALSE, fig.height = 5, fig.width = 10}
+train_cat |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(y = value)) + 
+  geom_bar(aes(x = after_stat(count)), bins = 20, fill = '#4E79A7', color = 'black') +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw() +
+  labs(y = "") 
+```
+
+\elandscape
+
+**Box Plots**
+
+Our box plots show us there are some outliers to be dealt with. We can see the `BLUEBOOK` value of cars have some quite pricey vehicles being insured. We also see how some of our variables where they are countable numbers such as `HOMEKIDS` and `KIDSDRIV` where parents have a child, but they are not driving yet. 
+
+```{r boxplot, warning=FALSE, echo=FALSE}
+train_cont %>%
+  gather(key = "Variable", value = "Value") |>
+  ggplot(aes(x = "", y = Value)) +  
+  geom_boxplot(fill = "#4E79A7") +
+  facet_wrap(~ Variable, scales = "free") + 
+  labs(x = NULL, y = "Value") +  
+  theme(strip.text = element_text(size = 5))
+```
+
+
+**Correlation Matrix**
+
+We have some moderately strong correlations between our variables. This will have to be addressed with when we build our models.
+
+  - `KIDSDRIV` and `HOMEKIDS`: They should have some multicollinearity as if you have children, they may be of age to drive already
+  - `MVR_PTS` and `CLM_FREQ`: This association should have multicollinearity as if you have higher motor vehicle points accumulated from negative driving habits, you may be more likely to have accidents and require to file more claims than the average driver. 
+  - `CLM_FREQ` and `OLDCLAIM`: There would be some multicollinearity as when you have more claims filed, you should have an older claim amount as a value.
+  - `TARGET_AMT` and `TARGET_FLAG`: If you were in a crash, you should have how much that accident was valued at. 
+
+```{r corr-plot, echo=FALSE}
+q <- cor(train_cont)
+
+ggcorrplot(q, type = "upper", outline.color = "white",
+           ggtheme = theme_classic,
+           colors = c("#F28E2B", "white", "#4E79A7"),
+           lab = TRUE, show.legend = F, tl.cex = 5, lab_size = 3) 
+```
+
+### Missing Values
+
+We can see we have some columns missing values. 
+
+  - `AGE`: Only missing a few values and given that it is a normally distributed variable, we have many options to impute them
+  - `YOJ`: We are missing a lot of values for how many year people have been at their job
+  - `INCOME`: We don't have how much money they are making in a year. It could be that they are not working. 
+  - `HOME_VAL`: These missing values may be under the assumption they don't own a home and possibly renting
+  - `CAR_AGE`: The highest amount of values we don't have is how old the car is. 
+
+```{r missing-values, echo=FALSE}
+missing_val <-
+  train %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  select_if(function(.) last(.) != 0)
+
+kbl(missing_val) |>
+    kable_classic(full_width = F, html_font = "Cambria") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+## Data Prep
+
+### Missing Values
+
+Some data prep work has been done to assist with exploration; this section will focus on work performed to ensure the multiple linear regression and logistic regression models will perform as best as possible.
+
+The majority of missing data is depicted below. The only variables missing data are CAR_AGE, HOME_VAL, YOJ, INCOME, AGE and none greater than 6%.
+
+To-Do List:
+
+ - Transform values into a more normal distribution?
+ - Outliers
+
+```{r}
+library(ggplot2)
+library(mice)
+library(ggmice)
+library(caret)
+library(bestNormalize)
+
+#head(train)
+
+# Neither logistic or linear regression assumes normal distributions from the data. Linear regression assumes that the residuals are normally distributed with equal variance. Logistic regression is robust to non-normal predictor variable distributions, but could be sensitive to highly skewed distributions.
+```
+
+
+```{r Check Zeros}
+
+# No columns contained suspect zeros.
+
+count_zeros <- function(column) {
+  zero_count <- sum(column == 0, na.rm = TRUE)
+  return(zero_count)
+}
+
+zero_counts_train <- sapply(train, count_zeros)
+
+```
+
+
+```{r Missing Pattern}
+plot_pattern(train, square = TRUE, rotate = TRUE, npat = 6)
+```
+
+```{r percent missing check}
+percentMiss <- function(x){sum(is.na(x))/length(x)*100} # Creates percentage of missing values
+
+# Cut offs for variable dropping was 25% of values missing - none were dropped
+# Cut offs for sample dropping was 50% of values missing - none were dropped
+
+variable_pMiss <- apply(train,2,percentMiss) # 2 = runs on columns
+sample_pMiss <- apply(train,1,percentMiss) # 1 = runs on rows
+
+#sum(sample_pMiss > 50) 
+
+pMiss <- data.frame(variables = names(variable_pMiss),pMiss = (variable_pMiss), row.names = NULL)
+pMiss <- pMiss %>% arrange(desc(pMiss))
+
+
+pMiss |>
+  ggplot(aes(x = reorder(variables,pMiss), y = pMiss)) + 
+  geom_bar(stat = 'identity', fill = '#4E79A7', color = 'black') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw() +
+  scale_x_discrete(guide = guide_axis(angle = 45))+
+  labs(x = 'Variables',y = 'Percent Missing',title = 'Percent of Missing Values by Variable')
+
+```
+
+```{r Split}
+set.seed(123)
+# 1. Split (to prevent data leakage)
+# 2. Imputing (because?)
+# 3. Transform (BoxCox cannot handle negative values, thus it comes before Center and Scale)
+# 4. Center and Scaling
+# 5. Outliers
+# 6. Near Zero Variance
+
+trainIndex <- createDataPartition(train$TARGET_FLAG, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+train_data <- train[trainIndex,]
+test_data <- train[-trainIndex,]
+
+```
+
+<br>
+
+#### Imputation
+MICE imputation with predictive mean matching is used for all variables except for AGE. AGE, with its fairly normal distribution and poor response to other imputation methods, is imputed using the mean. An graphical representation of the imputed values and the original distribution can be seen below to see how well the imputed values fit. All variables used predictive mean matching, except for AGE using mean, for imputation methods.
+
+
+
+```{r Train Imputation}
+impute_func <- function(data) {
+  ini <- mice(data,maxit = 0)
+  meth <- ini$meth
+  meth['AGE'] <- 'mean'
+  
+  imputed_object <- mice(data,method = meth, m=5, maxit = 30, seed = 500, print = F)
+  imputed_data <- complete(imputed_object)
+
+  return(list(imputed_object = imputed_object, imputed_data = imputed_data))
+}
+# To create the impute_func, I played around with the methods matrix. I had to remember the positions of the variables with
+# missing varaibles:
+#    AGE4, YOJ 6, INCOME 7,HOME_VAL 9, CAR_AGE 24,
+#norm.predict (imputes based on the "best value" determined by linear reg) - worse than norm
+#norm.boot (imputes by log reg with bootstrap aggregation) - worse Than norm
+#norm.nob (imputes without accounting for parameter uncertainty)
+#norm (univariate missing data by Bayesian linear reg) -poor
+#mpmm (imputes multivariate incomplete data that has relationships like polynomials)
+#cart (imputes based on regression trees)
+
+train_imputed_return <- impute_func(train_data)
+densityplot(train_imputed_return$imputed_object)
+
+train_imputed <- train_imputed_return$imputed_data
+
+```
+
+```{r Test preProc}
+test_imputed_return <- impute_func(test_data)
+
+densityplot(test_imputed_return$imputed_object)
+test_imputed <- test_imputed_return$imputed_data
+
+```
+
+
+```{r}
+colnames(train_cont)
+```
+
+#### Outliers & Transformations
+All outliers appeared to be reasonable values, but outliers introduce heavier skew into distributions which negatively impact logistic and linear models. To handle outliers, several types of transformations were performed. Skewness greater than 1 or -1 is considered heavily skewed, if within .5 to 1 or -.5 to -1 it is moderately skewed, and between 0 to .5 or 0 to -.5 is considered lightly skewed.
+
+```{r}
+
+
+transformations_df <- data.frame( Variable = c('BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ','CLM_FREQ','CAR_AGE'),
+                                  Transformation = c('Yeo-Johnson','Square Root','orderNorm','Logarithmic','Yeo-Johnson','Yeo-Johnson','Yeo-Johnson','orderNorm','Logarithmic','Square Root'),
+                                  Pre_Trans_Skew = c(.79,.48,1.19, 1.34, 3.19,.88,.47,-1.20, 1.21, .27),
+                                  Post_Trans_Skew = c(-.02, -.41, .14, -.13, .48, -.03, -.03, 0.1, .49, -.13)
+)
+
+kable(transformations_df)
+#Pre-Trans Skew
+#       'AGE','BLUEBOOK','HOME_VAL',     'INCOME',   'MVR_PTS','OLDCLAIM',      'TIF',   'TRAVTIME', 'YOJ'
+# -0.02828084  0.79064580  0.48424422  1.19278728  1.33666483  3.18962212  0.88998286  0.47059905 -1.20401183
+
+
+
+#Post-Trans Skew
+#bluebook : yeo-j : -.02
+#home : sq_root : -.41
+#income : ordered_norm : .14
+#mvr : log_x : -.13
+#oldclaim : yeo-j : .48
+#TIF : -.03 : yeo-j
+#TRAVTIME: -.03 yeo-j
+#YOJ: 0.1 ordNorm
+
+# Original
+# CLM_FREQ  CAR_AGE
+#1.2168925 0.2686713
+# Post Trans
+#CLM_FREQ : log-x : .49
+#CAR_AGE: Square Root : -.13
+
+```
+
+
+```{r Outliers Replaced by Median}
+calc_outliers <- function(column) { # Calculates the quantiles of the column
+  Q1 <- quantile(column, 0.25, na.rm = TRUE)
+  Q3 <- quantile(column, 0.75, na.rm = TRUE)
+  
+  # Calculates IQR
+  IQR_val <- Q3 - Q1
+  
+  # Calculates the Outlier benchmark
+  lower_limit <- Q1 - 1.5 * IQR_val
+  upper_limit <- Q3 + 1.5 * IQR_val
+  
+  # Store Limits
+  data.frame(lower_limit = lower_limit, upper_limit = upper_limit)
+}
+
+# Apply calculate_outlier_limits function to each column
+limits <- lapply(train_imputed[,c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ')], calc_outliers)
+
+# Convert list to dataframe
+limits <- data.frame(limits)
+
+
+
+create_med_column <- function(data, column) {
+  column_name <- enquo(column) #enquo() defuses function arguments and captures the name of the column in quotes 
+  column_med_name <- paste0(as_label(column_name) , "_med") #as_label references enquo objects to pull the string correctly
+  
+  #if you want to create a separate column to compare values, uncomment ", "_med") and delete the paren left of #
+  
+  data <- data %>%
+    mutate(!!column_med_name := case_when( # bang-bang unquotes the quosure object from enquo so it appears as a variable
+      !!column_name < limits[[paste0(as_label(column_name), ".lower_limit")]] ~ median(!!column_name, na.rm = TRUE),
+      !!column_name > limits[[paste0(as_label(column_name), ".upper_limit")]] ~ median(!!column_name, na.rm = TRUE),
+      TRUE ~ !!column_name
+    ))
+  
+  return(data)
+}
+### ---- create_med_column logic testing ----
+#
+# train_imputed <- train_imputed %>%
+#   mutate(AGE_med = case_when(
+#     AGE < limits$AGE.lower_limit ~ median(AGE),
+#     AGE > limits$AGE.upper_limit ~ median(AGE),
+#     TRUE ~ AGE
+#   ))
+# train_imputed %>% filter(AGE != AGE_med)
+
+#train_imputed[,c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ')]
+
+train_imputed_med <- create_med_column(train_imputed, AGE)
+train_imputed_med <- create_med_column(train_imputed_med, BLUEBOOK)
+train_imputed_med <- create_med_column(train_imputed_med, HOME_VAL)
+train_imputed_med <- create_med_column(train_imputed_med, INCOME)
+train_imputed_med <- create_med_column(train_imputed_med, MVR_PTS)
+train_imputed_med <- create_med_column(train_imputed_med, OLDCLAIM)
+train_imputed_med <- create_med_column(train_imputed_med, TIF)
+train_imputed_med <- create_med_column(train_imputed_med, TRAVTIME)
+train_imputed_med <- create_med_column(train_imputed_med, YOJ)
+
+
+train_imputed_med %>% filter(BLUEBOOK != BLUEBOOK_med) #71
+train_imputed_med %>% filter(HOME_VAL != HOME_VAL_med) #9
+train_imputed_med %>% filter(INCOME != INCOME_med) #200
+train_imputed_med %>% filter(MVR_PTS != MVR_PTS_med) #119
+train_imputed_med %>% filter(OLDCLAIM != OLDCLAIM_med) #447
+train_imputed_med %>% filter(TIF != TIF_med) #116
+train_imputed_med %>% filter(TRAVTIME != TRAVTIME_med) #41
+train_imputed_med %>% filter(YOJ != YOJ_med) #467
+```
+```{r Test Outliers}
+# Here we re-use the limits found in the training data since calculating new ones based on the test data would violate 
+# the assumptions we use to build our models from the training data and cause data leakage
+
+test_imputed_med <- create_med_column(test_imputed, AGE)
+test_imputed_med <- create_med_column(test_imputed_med, BLUEBOOK)
+test_imputed_med <- create_med_column(test_imputed_med, HOME_VAL)
+test_imputed_med <- create_med_column(test_imputed_med, INCOME)
+test_imputed_med <- create_med_column(test_imputed_med, MVR_PTS)
+test_imputed_med <- create_med_column(test_imputed_med, OLDCLAIM)
+test_imputed_med <- create_med_column(test_imputed_med, TIF)
+test_imputed_med <- create_med_column(test_imputed_med, TRAVTIME)
+test_imputed_med <- create_med_column(test_imputed_med, YOJ)
+
+```
+
+
+```{r BestNorm Transform}
+library(e1071)
+# bestNormalize will only work on continuous data and uses Pearson's P stat divided by degrees of freedom to determine
+#    the best transformation. The goal of this package is to render data similar to a normal distribution, not necessarily
+#    dealing with skew, but uses the same transformations and ultimately does deal with skew
+
+# Only the continuous variables with skew greater than 1 will be evaluated for transformation namely:
+# INCOME, MVR_PTS, OLDCLAIM, YOJ
+
+# We want to apply bestNormalize to each column to determine the best transformation
+# The best transformation is determined by applying each possible transformation, and choosing the 
+# transformation with the lowest Pearson's value (p val)
+
+#BNobjects <- sapply(train_imputed[, c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ')],
+                    ## Only pulling truly continuous columns, some of previously identified "continuous" columns
+                    ## are closer to discrete ordinal variables, of which skew does not apply to
+                    #bestNormalize)
+#(BNobject <- bestNormalize(x))
+
+#BNobjects
+
+```
+
+```{r}
+transform_and_skewness <- function(data, column) {
+  # This function runs common transformations with the bestNormalize package to identify the transformations that brings skewness closest to 0 - not necessarily the most 'normal'
+  # Check for negative values
+
+  arcsinh_result <- arcsinh_x(data[[column]])
+  yeojohnson_result <- yeojohnson(data[[column]])
+  orderNorm_result <- orderNorm(data[[column]])
+  sqx_result <- sqrt_x(data[[column]])
+  logx_result <- log_x(data[[column]])
+  
+  # Skewness
+  arc_skewness <- skewness(predict(arcsinh_result))
+  yj_skewness <- skewness(predict(yeojohnson_result))
+  on_skewness <- skewness(predict(orderNorm_result))
+  sqx_skewness <- skewness(predict(sqx_result))
+  logx_skewness <- skewness(predict(logx_result))
+  
+  
+  transformation_types <- c("Arcsinh", "Yeo-Johnson", "Ordered Norm", "Square Root", "Log X")
+  skewness_values <- c(arc_skewness, yj_skewness, on_skewness, sqx_skewness, logx_skewness)
+  
+  result <- data.frame(Transformation = transformation_types,
+                       Skewness = skewness_values) %>% arrange(Skewness)
+  
+  return(result)
+}
+
+#train_imputed[, c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ')]
+ts_age <- transform_and_skewness(train_imputed,'AGE')
+ts_bb <- transform_and_skewness(train_imputed,'BLUEBOOK')
+ts_hv <- transform_and_skewness(train_imputed,'HOME_VAL')
+ts_inc <- transform_and_skewness(train_imputed,'INCOME')
+ts_mvr <- transform_and_skewness(train_imputed,'MVR_PTS')
+ts_old <- transform_and_skewness(train_imputed,'OLDCLAIM')
+ts_tif <- transform_and_skewness(train_imputed,'TIF')
+ts_trav <- transform_and_skewness(train_imputed,'TRAVTIME')
+ts_yoj <- transform_and_skewness(train_imputed,'YOJ')
+ts_clmfr <- transform_and_skewness(train_imputed,'CLM_FREQ')
+ts_carage <- transform_and_skewness(train_imputed,'CAR_AGE')
+
+# Checking Original Variable Skew
+#describe(train_imputed)[c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ'), 'skew']
+#       'AGE','BLUEBOOK','HOME_VAL',     'INCOME',   'MVR_PTS','OLDCLAIM',      'TIF',   'TRAVTIME', 'YOJ'
+# -0.02828084  0.79064580  0.48424422  1.19278728  1.33666483  3.18962212  0.88998286  0.47059905 -1.20401183
+
+# Original Skewness
+# CLM_FREQ  CAR_AGE
+#1.2168925 0.2686713
+
+
+#describe(train_imputed)[c('CLM_FREQ','CAR_AGE'), 'skew']
+
+# Post Log TransForm Comparison
+# -0.02828084 -0.94174507 -0.82395335 -2.67587678  0.43921584  0.53301418 -0.12528863 -1.06421390 -2.54896281
+#describe(train_imputed_trans)[c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ'),'skew']
+
+# Skew Values compared to bestNormalize's package
+#bluebook : yeo-j : -.02
+#home : sq_root : -.41
+#income : ordered_norm : .14
+#mvr : log_x : -.13
+#oldclaim : yeo-j : .48
+#TIF : -.03 : yeo-j
+#TRAVTIME: -.03 yeo-j
+#YOJ: 0.1 ordNorm
+#CLM_FREQ : log-x : .49
+#CAR_AGE: Square Root : -.13
+
+train_imputed_trans <- train_imputed
+
+train_imputed_trans$BLUEBOOK_orderNorm <- predict(orderNorm(train_imputed_trans$BLUEBOOK))
+train_imputed_trans$HOME_VAL_sqrt <- predict(sqrt_x(train_imputed_trans$HOME_VAL))
+train_imputed_trans$INCOME_orderNorm <- predict(orderNorm(train_imputed_trans$INCOME))
+train_imputed_trans$MVR_PTS_log <- predict(log_x(train_imputed_trans$MVR_PTS))
+train_imputed_trans$OLDCLAIM_yeoj <- predict(yeojohnson(train_imputed_trans$OLDCLAIM))
+train_imputed_trans$TIF_yeoj <- predict(yeojohnson(train_imputed_trans$TIF))
+train_imputed_trans$TRAVTIME_yeoj <- predict(yeojohnson(train_imputed_trans$TRAVTIME))
+train_imputed_trans$YOJ_orderNorm <- predict(orderNorm(train_imputed_trans$YOJ))
+train_imputed_trans$CLM_FREQ_log <- predict(log_x(train_imputed_trans$CLM_FREQ))
+train_imputed_trans$CAR_AGE_sqrt <- predict(sqrt_x(train_imputed_trans$CAR_AGE))
+
+
+```
+
+```{r Transform Skew Comparisons, echo=FALSE, warning=FALSE}
+
+train_imputed_trans[c('BLUEBOOK_orderNorm','HOME_VAL_sqrt','INCOME_orderNorm','MVR_PTS_log','OLDCLAIM_yeoj','TIF_yeoj','TRAVTIME_yeoj','YOJ_orderNorm','CLM_FREQ_log','CAR_AGE_sqrt')] |>
+  gather(key = "variable", value = "value") |>  
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(y = after_stat(density)), bins = 20, fill = '#4E79A7', color = 'black') + 
+  stat_density(geom = "line", color = "red") +
+  facet_wrap(~ variable, scales = 'free') +
+  theme(strip.text = element_text(size = 5)) +
+  theme_bw()
+```
+
+```{r Test Transformation}
+test_imputed_trans <- test_imputed
+
+test_imputed_trans$BLUEBOOK_orderNorm <- predict(orderNorm(test_imputed_trans$BLUEBOOK))
+test_imputed_trans$HOME_VAL_sqrt <- predict(sqrt_x(test_imputed_trans$HOME_VAL))
+test_imputed_trans$INCOME_orderNorm <- predict(orderNorm(test_imputed_trans$INCOME))
+test_imputed_trans$MVR_PTS_log <- predict(log_x(test_imputed_trans$MVR_PTS))
+test_imputed_trans$OLDCLAIM_yeoj <- predict(yeojohnson(test_imputed_trans$OLDCLAIM))
+test_imputed_trans$TIF_yeoj <- predict(yeojohnson(test_imputed_trans$TIF))
+test_imputed_trans$TRAVTIME_yeoj <- predict(yeojohnson(test_imputed_trans$TRAVTIME))
+test_imputed_trans$YOJ_orderNorm <- predict(orderNorm(test_imputed_trans$YOJ))
+test_imputed_trans$CLM_FREQ_log <- predict(log_x(test_imputed_trans$CLM_FREQ))
+test_imputed_trans$CAR_AGE_sqrt <- predict(sqrt_x(test_imputed_trans$CAR_AGE))
+
+```
+
+#### Encoding, Center/Scale/NearZeroVariance
+All continuous data was centered and scaled (CS) and checked for near zero variance (NZV). No variables were near zero variance and thus all were kept. All categorical data was encoded with one-hot encoding (OHC). Ordinal data was treated as continuous since the distances between values were consistent and meaningful A table below summarizes variable changes.
+
+```{r}
+variable_process_df <- data.frame(Variable = c(colnames(train)),
+                                  Process = c('Untouched','Untouched','CS NZV', 'CS NZV','CS NZV',
+                                              'CS NZV', 'CS NZV', 'OHC','CS NZV', 'OHC',
+                                              'OHC','OHC','OHC','CS NZV','OHC',
+                                              'CS NZV', 'CS NZV' ,'OHC','OHC','CS NZV',
+                                              'CS NZV', 'OHC','CS NZV','CS NZV', 'OHC',
+                                              'OHC','OHC'))
+variable_process_df
+```
+
+
+```{r Cont/Ord Data CSNZV}
+library(caret)
+
+### Train CSNZV------
+
+# Specify the columns to preprocess since some we transformed and others we didn't
+cont_cols <- c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ','KIDSDRIV','HOMEKIDS','CLM_FREQ','CAR_AGE','BLUEBOOK_orderNorm','HOME_VAL_sqrt','INCOME_orderNorm','MVR_PTS_log','OLDCLAIM_yeoj','TIF_yeoj','TRAVTIME_yeoj','YOJ_orderNorm','CLM_FREQ_log','CAR_AGE_sqrt')
+
+preprocess_Cont <- preProcess(train_imputed_trans[, cont_cols],
+                             method = c("center", "scale", "nzv"))
+
+train_imputed_trans[, cont_cols] <- predict(preprocess_Cont, train_imputed_trans[, cont_cols])
+
+
+### Test CSNZV-----------
+
+preprocess_Cont_Test <- preProcess(test_imputed_trans[, cont_cols],
+                             method = c("center", "scale", "nzv"))
+
+test_imputed_trans[, cont_cols] <- predict(preprocess_Cont_Test, test_imputed_trans[, cont_cols])
+
+
+```
+
+```{r One-Hot Encode Cat Vars}
+dummy_var_cols <- colnames(train_cat)
+
+
+# Create dummy variables using caret
+dummyVars_obj <- dummyVars(~ ., data = train_imputed_trans[, dummy_var_cols])
+
+# Set as their own dataframe
+dummy_vars <- predict(dummyVars_obj, newdata = train_imputed_trans[, dummy_var_cols])
+
+# Combine the dummy variables with the original dataframe
+train_imputed_trans_encoded <- cbind(train_imputed_trans, dummy_vars)
+
+
+
+
+### Test Set Encode ----------
+
+# Create dummy variables using caret
+dummyVars_obj_test <- dummyVars(~ ., data = test_imputed_trans[, dummy_var_cols])
+
+# Set as their own dataframe
+dummy_vars_test <- predict(dummyVars_obj_test, newdata = test_imputed_trans[, dummy_var_cols])
+
+# Combine the dummy variables with the original dataframe
+test_imputed_trans_encoded <- cbind(test_imputed_trans, dummy_vars_test)
+
+```
+
+
+
+```{r Write Data}
+
+write_csv(train_imputed_trans_encoded,"data\\train_processed.csv")
+write_csv( test_imputed_trans_encoded,"data\\test_processed.csv")
+
+```
+
+
