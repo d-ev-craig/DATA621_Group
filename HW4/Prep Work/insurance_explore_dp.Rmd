@@ -14,7 +14,7 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
 ## Required Libraries
@@ -375,7 +375,16 @@ ggcorrplot(q, type = "upper", outline.color = "white",
            lab = TRUE, show.legend = F, tl.cex = 5, lab_size = 3) 
 ```
 
-### Missing Values
+
+\newpage
+
+## Data Prep
+
+### Missing Values  
+  
+Some data prep work has been done to assist with exploration; this section will focus on work performed to ensure the multiple linear regression and logistic regression models will perform as best as possible.
+
+The majority of missing data is depicted below. The only variables missing data are CAR_AGE, HOME_VAL, YOJ, INCOME, AGE and none greater than 6%.
 
 We can see we have some columns missing values. 
 
@@ -396,18 +405,6 @@ kbl(missing_val) |>
   kable_styling(latex_options = "HOLD_position")
 ```
 
-## Data Prep
-
-### Missing Values
-
-Some data prep work has been done to assist with exploration; this section will focus on work performed to ensure the multiple linear regression and logistic regression models will perform as best as possible.
-
-The majority of missing data is depicted below. The only variables missing data are CAR_AGE, HOME_VAL, YOJ, INCOME, AGE and none greater than 6%.
-
-To-Do List:
-
- - Transform values into a more normal distribution?
- - Outliers
 
 ```{r}
 library(ggplot2)
@@ -425,7 +422,6 @@ library(bestNormalize)
 ```{r Check Zeros}
 
 # No columns contained suspect zeros.
-
 count_zeros <- function(column) {
   zero_count <- sum(column == 0, na.rm = TRUE)
   return(zero_count)
@@ -459,6 +455,7 @@ pMiss |>
   ggplot(aes(x = reorder(variables,pMiss), y = pMiss)) + 
   geom_bar(stat = 'identity', fill = '#4E79A7', color = 'black') +
   theme(strip.text = element_text(size = 5)) +
+  ylim(0,100)+
   theme_bw() +
   scale_x_discrete(guide = guide_axis(angle = 45))+
   labs(x = 'Variables',y = 'Percent Missing',title = 'Percent of Missing Values by Variable')
@@ -483,14 +480,15 @@ test_data <- train[-trainIndex,]
 
 ```
 
-<br>
+\newpage
 
 #### Imputation
+
 MICE imputation with predictive mean matching is used for all variables except for AGE. AGE, with its fairly normal distribution and poor response to other imputation methods, is imputed using the mean. An graphical representation of the imputed values and the original distribution can be seen below to see how well the imputed values fit. All variables used predictive mean matching, except for AGE using mean, for imputation methods.
 
+<br>
 
-
-```{r Train Imputation}
+```{r Train Imputation, fig.align='center'}
 impute_func <- function(data) {
   ini <- mice(data,maxit = 0)
   meth <- ini$meth
@@ -512,38 +510,35 @@ impute_func <- function(data) {
 #cart (imputes based on regression trees)
 
 train_imputed_return <- impute_func(train_data)
-densityplot(train_imputed_return$imputed_object)
+densityplot(train_imputed_return$imputed_object, main = "Training Data Imputation Distributions")
 
 train_imputed <- train_imputed_return$imputed_data
-
 ```
-
-```{r Test preProc}
+```{r Test preProc,fig.align='center'}
 test_imputed_return <- impute_func(test_data)
 
-densityplot(test_imputed_return$imputed_object)
+densityplot(test_imputed_return$imputed_object, main = "Testing Data Imputation Distributions")
 test_imputed <- test_imputed_return$imputed_data
 
 ```
 
 
-```{r}
-colnames(train_cont)
-```
+#### Outliers & Transformations  
+  
+All outliers appeared to be reasonable values, but outliers introduce heavier skew into distributions which negatively impact logistic and linear models. To handle outliers, several types of transformations were performed. Skewness greater than 1 or -1 is considered heavily skewed, if within .5 to 1 or -.5 to -1 it is moderately skewed, and between 0 to .5 or 0 to -.5 is considered lightly skewed. While logistic and linear regressions do not assume or rely on normality in the data, skewness in continuous variables can cause issues with accuracy of the model. To handle skewness in the continuous variables, transformations were applied to each variable that minimized the amount of skew.
 
-#### Outliers & Transformations
-All outliers appeared to be reasonable values, but outliers introduce heavier skew into distributions which negatively impact logistic and linear models. To handle outliers, several types of transformations were performed. Skewness greater than 1 or -1 is considered heavily skewed, if within .5 to 1 or -.5 to -1 it is moderately skewed, and between 0 to .5 or 0 to -.5 is considered lightly skewed.
-
-```{r}
-
+```{r Transformations DF, echo=FALSE}
 
 transformations_df <- data.frame( Variable = c('BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ','CLM_FREQ','CAR_AGE'),
                                   Transformation = c('Yeo-Johnson','Square Root','orderNorm','Logarithmic','Yeo-Johnson','Yeo-Johnson','Yeo-Johnson','orderNorm','Logarithmic','Square Root'),
                                   Pre_Trans_Skew = c(.79,.48,1.19, 1.34, 3.19,.88,.47,-1.20, 1.21, .27),
                                   Post_Trans_Skew = c(-.02, -.41, .14, -.13, .48, -.03, -.03, 0.1, .49, -.13)
-)
+) %>% arrange(Variable)
 
-kable(transformations_df)
+kbl(transformations_df) |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")
+
 #Pre-Trans Skew
 #       'AGE','BLUEBOOK','HOME_VAL',     'INCOME',   'MVR_PTS','OLDCLAIM',      'TIF',   'TRAVTIME', 'YOJ'
 # -0.02828084  0.79064580  0.48424422  1.19278728  1.33666483  3.18962212  0.88998286  0.47059905 -1.20401183
@@ -570,7 +565,7 @@ kable(transformations_df)
 ```
 
 
-```{r Outliers Replaced by Median}
+```{r Outliers Replaced by Median , echo = FALSE}
 calc_outliers <- function(column) { # Calculates the quantiles of the column
   Q1 <- quantile(column, 0.25, na.rm = TRUE)
   Q3 <- quantile(column, 0.75, na.rm = TRUE)
@@ -609,6 +604,18 @@ create_med_column <- function(data, column) {
   
   return(data)
 }
+
+# Imputating Median
+train_imputed_med <- create_med_column(train_imputed, AGE)
+train_imputed_med <- create_med_column(train_imputed_med, BLUEBOOK)
+train_imputed_med <- create_med_column(train_imputed_med, HOME_VAL)
+train_imputed_med <- create_med_column(train_imputed_med, INCOME)
+train_imputed_med <- create_med_column(train_imputed_med, MVR_PTS)
+train_imputed_med <- create_med_column(train_imputed_med, OLDCLAIM)
+train_imputed_med <- create_med_column(train_imputed_med, TIF)
+train_imputed_med <- create_med_column(train_imputed_med, TRAVTIME)
+train_imputed_med <- create_med_column(train_imputed_med, YOJ)
+
 ### ---- create_med_column logic testing ----
 #
 # train_imputed <- train_imputed %>%
@@ -621,25 +628,16 @@ create_med_column <- function(data, column) {
 
 #train_imputed[,c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ')]
 
-train_imputed_med <- create_med_column(train_imputed, AGE)
-train_imputed_med <- create_med_column(train_imputed_med, BLUEBOOK)
-train_imputed_med <- create_med_column(train_imputed_med, HOME_VAL)
-train_imputed_med <- create_med_column(train_imputed_med, INCOME)
-train_imputed_med <- create_med_column(train_imputed_med, MVR_PTS)
-train_imputed_med <- create_med_column(train_imputed_med, OLDCLAIM)
-train_imputed_med <- create_med_column(train_imputed_med, TIF)
-train_imputed_med <- create_med_column(train_imputed_med, TRAVTIME)
-train_imputed_med <- create_med_column(train_imputed_med, YOJ)
 
-
-train_imputed_med %>% filter(BLUEBOOK != BLUEBOOK_med) #71
-train_imputed_med %>% filter(HOME_VAL != HOME_VAL_med) #9
-train_imputed_med %>% filter(INCOME != INCOME_med) #200
-train_imputed_med %>% filter(MVR_PTS != MVR_PTS_med) #119
-train_imputed_med %>% filter(OLDCLAIM != OLDCLAIM_med) #447
-train_imputed_med %>% filter(TIF != TIF_med) #116
-train_imputed_med %>% filter(TRAVTIME != TRAVTIME_med) #41
-train_imputed_med %>% filter(YOJ != YOJ_med) #467
+ # Checking how many are replaced
+# train_imputed_med %>% filter(BLUEBOOK != BLUEBOOK_med) #71
+# train_imputed_med %>% filter(HOME_VAL != HOME_VAL_med) #9
+# train_imputed_med %>% filter(INCOME != INCOME_med) #200
+# train_imputed_med %>% filter(MVR_PTS != MVR_PTS_med) #119
+# train_imputed_med %>% filter(OLDCLAIM != OLDCLAIM_med) #447
+# train_imputed_med %>% filter(TIF != TIF_med) #116
+# train_imputed_med %>% filter(TRAVTIME != TRAVTIME_med) #41
+# train_imputed_med %>% filter(YOJ != YOJ_med) #467
 ```
 ```{r Test Outliers}
 # Here we re-use the limits found in the training data since calculating new ones based on the test data would violate 
@@ -657,8 +655,7 @@ test_imputed_med <- create_med_column(test_imputed_med, YOJ)
 
 ```
 
-
-```{r BestNorm Transform}
+```{r BestNorm Transform, echo=FALSE}
 library(e1071)
 # bestNormalize will only work on continuous data and uses Pearson's P stat divided by degrees of freedom to determine
 #    the best transformation. The goal of this package is to render data similar to a normal distribution, not necessarily
@@ -681,7 +678,7 @@ library(e1071)
 
 ```
 
-```{r}
+```{r Transformation Code, echo=FALSE, warning=FALSE}
 transform_and_skewness <- function(data, column) {
   # This function runs common transformations with the bestNormalize package to identify the transformations that brings skewness closest to 0 - not necessarily the most 'normal'
   # Check for negative values
@@ -730,13 +727,8 @@ ts_carage <- transform_and_skewness(train_imputed,'CAR_AGE')
 # Original Skewness
 # CLM_FREQ  CAR_AGE
 #1.2168925 0.2686713
-
-
 #describe(train_imputed)[c('CLM_FREQ','CAR_AGE'), 'skew']
 
-# Post Log TransForm Comparison
-# -0.02828084 -0.94174507 -0.82395335 -2.67587678  0.43921584  0.53301418 -0.12528863 -1.06421390 -2.54896281
-#describe(train_imputed_trans)[c('AGE','BLUEBOOK','HOME_VAL','INCOME','MVR_PTS','OLDCLAIM','TIF','TRAVTIME','YOJ'),'skew']
 
 # Skew Values compared to bestNormalize's package
 #bluebook : yeo-j : -.02
@@ -774,11 +766,12 @@ train_imputed_trans[c('BLUEBOOK_orderNorm','HOME_VAL_sqrt','INCOME_orderNorm','M
   geom_histogram(aes(y = after_stat(density)), bins = 20, fill = '#4E79A7', color = 'black') + 
   stat_density(geom = "line", color = "red") +
   facet_wrap(~ variable, scales = 'free') +
+  labs(title = "Post Transformation Distributions") +
   theme(strip.text = element_text(size = 5)) +
   theme_bw()
 ```
 
-```{r Test Transformation}
+```{r Test Transformation, echo=FALSE, warning=FALSE}
 test_imputed_trans <- test_imputed
 
 test_imputed_trans$BLUEBOOK_orderNorm <- predict(orderNorm(test_imputed_trans$BLUEBOOK))
@@ -795,17 +788,22 @@ test_imputed_trans$CAR_AGE_sqrt <- predict(sqrt_x(test_imputed_trans$CAR_AGE))
 ```
 
 #### Encoding, Center/Scale/NearZeroVariance
-All continuous data was centered and scaled (CS) and checked for near zero variance (NZV). No variables were near zero variance and thus all were kept. All categorical data was encoded with one-hot encoding (OHC). Ordinal data was treated as continuous since the distances between values were consistent and meaningful A table below summarizes variable changes.
+All continuous data was centered and scaled (CS) and checked for near zero variance (NZV). No variables were near zero variance and thus all were kept. All categorical data was encoded with one-hot encoding (OHC). Ordinal data was treated as continuous since the distances between values were consistent and meaningful. A table below summarizes variable changes.
 
-```{r}
+```{r Prep Summary}
 variable_process_df <- data.frame(Variable = c(colnames(train)),
                                   Process = c('Untouched','Untouched','CS NZV', 'CS NZV','CS NZV',
                                               'CS NZV', 'CS NZV', 'OHC','CS NZV', 'OHC',
                                               'OHC','OHC','OHC','CS NZV','OHC',
                                               'CS NZV', 'CS NZV' ,'OHC','OHC','CS NZV',
                                               'CS NZV', 'OHC','CS NZV','CS NZV', 'OHC',
-                                              'OHC','OHC'))
-variable_process_df
+                                              'OHC','OHC')) %>% arrange(Variable)
+
+
+kbl(variable_process_df, caption = "Prep Summary") |>
+  kable_classic(full_width = F, html_font = "Cambria") |>
+  kable_styling(latex_options = "HOLD_position")  %>%
+  kableExtra::landscape()
 ```
 
 
@@ -866,8 +864,8 @@ test_imputed_trans_encoded <- cbind(test_imputed_trans, dummy_vars_test)
 
 ```{r Write Data}
 
-write_csv(train_imputed_trans_encoded,"data\\train_processed.csv")
-write_csv( test_imputed_trans_encoded,"data\\test_processed.csv")
+#write_csv(train_imputed_trans_encoded,"data\\train_processed.csv")
+#write_csv( test_imputed_trans_encoded,"data\\test_processed.csv")
 
 ```
 

@@ -1,0 +1,289 @@
+---
+title: 'HW #4 Modeling'
+author: "Shaya Engelman, Noori Selina"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(car)
+library(glmnet)
+library(pROC)
+library(Metrics)
+library(ggplot2)
+```
+
+```{r}
+train_data <- read.csv("https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/train_processed.csv")
+test_data <- read.csv("https://raw.githubusercontent.com/d-ev-craig/DATA621_Group/main/HW4/data/test_processed.csv")
+```
+
+```{r}
+colnames(train_data)
+```
+
+We will first work on the logistic regression model to predict whether the person will get into a crash or not.
+
+Because we have both our original variables and their transformations we need to be careful not to include the same variables twice. Just to make everything easier, I first created lists of columns to help identify them.
+
+```{r}
+target_columns <- c("TARGET_FLAG", "TARGET_AMT")
+original_columns <- c("KIDSDRIV", "AGE", "HOMEKIDS", "YOJ", "INCOME", "PARENT1", "HOME_VAL", "MSTATUS",
+                      "SEX", "EDUCATION", "JOB", "TRAVTIME", "CAR_USE", "BLUEBOOK", "TIF", "CAR_TYPE",
+                      "RED_CAR", "OLDCLAIM", "CLM_FREQ", "REVOKED", "MVR_PTS", "CAR_AGE", "URBANICITY")
+
+transformed_columns <- c("BLUEBOOK_orderNorm", "HOME_VAL_sqrt", "INCOME_orderNorm", "MVR_PTS_log", "OLDCLAIM_yeoj",
+                         "TIF_yeoj", "TRAVTIME_yeoj", "YOJ_orderNorm", "CLM_FREQ_log", "CAR_AGE_sqrt", "PARENT1.No",
+                         "PARENT1.Yes", "MSTATUS.No", "MSTATUS.Yes", "SEX.F", "SEX.M", "EDUCATION.L", "EDUCATION.Q",
+                         "EDUCATION.C", "JOB.1", "JOBBlue.Collar", "JOBClerical", "JOBDoctor", "JOBHome.Maker",
+                         "JOBLawyer", "JOBManager", "JOBProfessional", "JOBStudent", "CAR_USECommercial",
+                         "CAR_USEPrivate", "CAR_TYPEMinivan", "CAR_TYPEPanel.Truck", "CAR_TYPEPickup", "CAR_TYPESports.Car",
+                         "CAR_TYPESUV", "CAR_TYPEVan", "RED_CAR.No", "RED_CAR.Yes", "REVOKED.No", "REVOKED.Yes",
+                         "URBANICITYHighly.Rural..Rural", "URBANICITYHighly.Urban..Urban" )
+```
+
+Since we used One-Hot Encoding (OHC) to transform the categorical variables, we need to worry about multicollinearity between those columns. For the variables with only two features, we can simply drop one of them as the second adds no extra knowledge. For other collinear variables, we need to be more careful and employ different strategies.
+
+The transformed data are all numeric columns and thus easier to work with. Additionally, I assume they would return better results, for these reasons, I will start with the transformed columns. First, we build a simple model with all our variables, just to get a basic idea of what we are dealing with.
+
+
+```{r}
+simple_model1 <- glm(TARGET_FLAG ~ ., data = train_data[, c(transformed_columns, "TARGET_FLAG")], family = "binomial")
+summary(simple_model1)
+```
+
+Based on these results, I will remove variables causing multicollinearity problems. For the columns with only two options we simply remove any one of them. For the other variables, I will remove the variable with the least correlation to the target variable since I assume they would have the least impact on the final model.
+
+```{r}
+cor_mat <- cor(train_data[, c(transformed_columns, "TARGET_FLAG")])
+kable(cor_mat[,"TARGET_FLAG"])
+```
+
+Columns: "PARENT1.Yes", "MSTATUS.Yes", "SEX.M", "CAR_USEPrivate", "RED_CAR.Yes", "REVOKED.Yes", "URBANICITYHighly.Urban..Urban" were easily eliminated due to only having two options. To solve the remaining singularities, we also remove columns: "JOB.1", "CAR_TYPEVan". These were selected due to their extremely low correlation to the target variable.
+
+```{r}
+columns_causing_multicollinearity <- c("PARENT1.Yes", "MSTATUS.Yes", "SEX.M", "JOB.1", "CAR_TYPEVan", "CAR_USEPrivate",
+                                     "RED_CAR.Yes", "REVOKED.Yes", "URBANICITYHighly.Urban..Urban")
+
+transformed_columns_filtered <- setdiff(transformed_columns, columns_causing_multicollinearity)
+```
+
+We now rerun the simple model without these columns to get a look at some of the coefficients.
+
+```{r}
+simple_model2 <- glm(TARGET_FLAG ~ ., data = train_data[, c(transformed_columns_filtered, "TARGET_FLAG")], family = "binomial")
+summary(simple_model2)
+```
+
+We see that we no longer have any singularities in the model and, notably, the Deviance and AIC of these two models are identical since we have't actually improved the model. We just improved the accuracy of the individual coefficients by removing perfect multicollinearity. However, we still have a lot of very insignificant variables that likely are only making the model worse. Additionally, while we no longer have perfect multicollinearity, there is still definitely some collinearity in the categorical variables. We will use a combination of the vif() function and the correlation matrix from above to try to improve on this.
+
+```{r}
+kable(cor_mat[,"TARGET_FLAG"])
+kable(vif(simple_model2))
+```
+
+
+Using the above tables we easily see we need to drop "OLDCLAIM_yeoj". It is obviously extremely correlated with "CLM_FREQ_log" since the amount of claims one made will obviously correlate with the total dollar amount claimed. We choose to keep the total amount of claims rather than the total amount of dollars since that is likely a better predictor of a single other claim. The various jobs are obviously correlated with each other and influencing the coeeficients of each other. By removing the ones with the least correlation to the target variable, we've hopefully improved our coefficients of the ones remaining. The same is true for the various car types and education levels. The YOJ (years on job), car age, sex, and red car columns were removed simply due to their low p values and correlation to the target variable.
+
+```{r}
+remove_columns <- c("OLDCLAIM_yeoj", "JOBClerical", "JOBDoctor", "JOBLawyer", "JOBHome.Maker", "JOBProfessional",  "CAR_TYPEPanel.Truck", "CAR_TYPEVan", "EDUCATION.C", "YOJ_orderNorm","CAR_AGE_sqrt", "SEX.F", "EDUCATION.L", "JOBBlue.Collar", "CAR_TYPEPickup", "CAR_TYPESports.Car", "CAR_TYPESUV", "RED_CAR.No")
+
+transformed_columns_final <- setdiff(transformed_columns_filtered, remove_columns)
+```
+
+We now will create a model using the remaining columns.
+
+```{r model1}
+model_transformed <- glm(TARGET_FLAG ~ ., data = train_data[, c(transformed_columns_final, "TARGET_FLAG")], family = "binomial")
+summary(model_transformed)
+```
+```{r}
+vif(model_transformed)
+```
+All the predictors in our model are significant and there isn't much collinearity between them. However, since we used the transformed variables to create this model, interpreting this model and applying it to new data can be difficult. The new data would first have to undergo the same transformations. 
+
+Now that we have found the predictors we would like to include in our model, we can try using the untransformed versions of the variables and recreating the model.
+
+```{r model2}
+model2 <- glm(TARGET_FLAG ~ BLUEBOOK + HOME_VAL + CAR_TYPE + INCOME + MVR_PTS + TIF + TRAVTIME + CLM_FREQ + PARENT1 + MSTATUS + CAR_USE + REVOKED + URBANICITY, data = train_data, family = binomial(link = "logit"))
+summary(model2)
+```
+
+The untransformed data performs almost as well as the transformed data. We will come back to analyze them later. 
+
+We have now created two models, using the same variables. In both cases, we used a lot of predictors in our models. We also relied on our own intuition of which varibles to include and which not to. Now, we will try an automated variable selection method. We will try using Lasso regression for this. Lasso regression does both feature selection and avoids overfitting the data.
+
+```{r}
+predictors <- subset(train_data, select = transformed_columns)
+target <- train_data$TARGET_FLAG
+
+predictors_matrix <- as.matrix(predictors)
+
+# We'll use cv.glmnet to perform cross-validation to select lambda (regularization parameter)
+lasso_model_first <- cv.glmnet(predictors_matrix, target, family = "binomial", alpha = 1)
+
+# Plot cross-validated mean deviance (or other metric) vs. lambda
+plot(lasso_model_first)
+
+# Identify the optimal lambda value that minimizes mean cross-validated deviance
+best_lambda <- lasso_model_first$lambda.min
+cat("Best lambda:", best_lambda, "\n")
+
+# Refit the model using the optimal lambda
+lasso_model <- glmnet(predictors, train_data$TARGET_FLAG, family = "binomial", alpha = 1, lambda = best_lambda)
+summary(lasso_model)
+```
+
+Now lets run our three models on the test data and compare the results.
+
+```{r}
+# Model1
+model_transformed_predictions <- predict(model_transformed, newdata = test_data, type = "response")
+model_transformed_binary_predictions <- ifelse(model_transformed_predictions >= 0.5, 1, 0)
+
+
+model_transformed_rmse <- rmse(test_data$TARGET_FLAG, model_transformed_binary_predictions)
+
+# Model2
+model2_predictions <- predict(model2, newdata = test_data, type = "response")
+model2_binary_predictions <- ifelse(model2_predictions >= 0.5, 1, 0)
+
+model2_rmse <- rmse(test_data$TARGET_FLAG, model2_binary_predictions)
+
+# Lasso Model
+lasso_model_predictions <- predict(lasso_model, newx = as.matrix(test_data[, transformed_columns]), type = "response")
+lasso_model_binary_predictions <- ifelse(lasso_model_predictions >= 0.5, 1, 0)
+
+lasso_model_rmse <- rmse(test_data$TARGET_FLAG, lasso_model_binary_predictions)
+
+# Create a dataframe to store the results
+results <- data.frame(Model = c("Model_Transformed", "Model2", "Lasso Model"),
+                      RMSE = c(model_transformed_rmse, model2_rmse, lasso_model_rmse))
+
+# Add AIC of each model to the results dataframe
+model_transformed_AIC <- AIC(model_transformed)
+model2_AIC <- AIC(model2)
+lasso_model_AIC <- NA
+
+results$AIC <- c(model_transformed_AIC, model2_AIC, lasso_model_AIC)
+
+# Add the Deviance of each model to the results dataframe
+model_transformed_deviance <- deviance(model_transformed)
+model2_deviance <- deviance(model2)
+lasso_model_deviance <- deviance(lasso_model)
+
+results$Deviance <- c(model_transformed_deviance, model2_deviance, lasso_model_deviance)
+
+# Add additional evaluation metrics to the results dataframe
+conf_matrix <- table(model_transformed_binary_predictions, test_data$TARGET_FLAG)
+TP <- conf_matrix[2, 2]  
+FP <- conf_matrix[1, 2]  
+FN <- conf_matrix[2, 1] 
+model_transformed_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+model_transformed_precision <- TP / (TP + FP)
+model_transformed_recall <- TP / (TP + FN)
+model_transformed_f1_score <- 2 * (model_transformed_precision * model_transformed_recall) / (model_transformed_precision + model_transformed_recall)
+model_transformed_roc_auc <- roc(test_data$TARGET_FLAG, model_transformed_predictions)$auc
+
+conf_matrix <- table(model2_binary_predictions, test_data$TARGET_FLAG)
+TP <- conf_matrix[2, 2]  
+FP <- conf_matrix[1, 2]  
+FN <- conf_matrix[2, 1] 
+model2_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+model2_precision <- TP / (TP + FP)
+model2_recall <- TP / (TP + FN)
+model2_f1_score <- 2 * (model2_precision * model2_recall) / (model2_precision + model2_recall)
+model2_roc_auc <- roc(test_data$TARGET_FLAG, model2_predictions)$auc
+
+conf_matrix <- table(lasso_model_binary_predictions, test_data$TARGET_FLAG)
+TP <- conf_matrix[2, 2]  
+FP <- conf_matrix[1, 2]  
+FN <- conf_matrix[2, 1] 
+lasso_model_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+lasso_model_precision <- TP / (TP + FP)
+lasso_model_recall <- TP / (TP + FN)
+lasso_model_f1_score <- 2 * (lasso_model_precision * lasso_model_recall) / (lasso_model_precision + lasso_model_recall)
+lasso_model_roc_auc <- roc(test_data$TARGET_FLAG, lasso_model_predictions)$auc
+
+
+
+results$Accuracy <- c(model_transformed_accuracy, model2_accuracy, lasso_model_accuracy)
+results$Precision <- c(model_transformed_precision, model2_precision, lasso_model_precision)
+results$Recall <- c(model_transformed_recall, model2_recall, lasso_model_recall)
+results$F1_Score <- c(model_transformed_f1_score, model2_f1_score, lasso_model_f1_score)
+results$ROC_AUC <- c(model_transformed_roc_auc, model2_roc_auc, lasso_model_roc_auc)
+
+
+kable(results)
+```
+I do not know how to extract the AIC of a Lasso Regression model so I didn't include that. Based on the above table, selecting a model is extremely difficult. The differences between all three models are not very large. This is to be expected since they were all mostly trained on the same data. All the models have their own strengths and can be useful depending on the use case. For the chosen cutoff point of 0.5 to determine whether someone will claim a car insurance claim, the transformed model has the best overall numbers. However, the slight increase in its prediction power might not be worth the added complication of interpreting transformed variables instead of just using the untransformed model (model2) to achieve almost as good a result. Additionally, model2 has the highest recall value and thus might be considered if the harm of a false negative is very large as it is the most likely to catch those cases. The Lasso model has the highest ROC_AUC score and the lowest deviance. The highest ROC_AUC score specfically means it is probably the best model to use for data with imbalanced classes and with other threshold than the 0.5 used here.
+
+For this specific assignment, I would use the transformed model for predicting new data as it offers the best blend of metrics. However, as noted above, in other cases the other modle might be better.
+
+
+***Models for Target amount variable***
+Now, our aim is to construct predictive models for the variable TARGET_AMT, representing the cost of car crashes. We begin by manually selecting variables based on correlation and intuition, followed by refining the model using the stepwise regression approach. Subsequently, we'll compare the predictive performance of the manually selected model with the stepwise regression model to determine which one better predicts the TARGET_AMT.
+
+Initially, we define a set of variables chosen based on correlation and intuition. Then, we construct a multiple linear regression model using these variables to predict the target amount (TARGET_AMT). Finally, we present a summary of the model's results, focusing on metrics such as RMSE and R-squared to evaluate predictive accuracy.
+
+```{r}
+
+selected_variables <- c("AGE", "INCOME", "HOME_VAL", "TRAVTIME", "BLUEBOOK_orderNorm", 
+                        "MVR_PTS_log", "TIF_yeoj", "CLM_FREQ_log", "CAR_AGE_sqrt", 
+                        "PARENT1.No", "MSTATUS.No", "SEX.F", "EDUCATION.L", 
+                        "JOBManager", "CAR_USECommercial", "CAR_TYPEMinivan", 
+                        "RED_CAR.No", "REVOKED.No", "URBANICITYHighly.Rural..Rural")
+
+# Building multiple linear regression model
+manual_model_amt <- lm(TARGET_AMT ~ ., data = train_data[, c(selected_variables, "TARGET_AMT")])
+summary(manual_model_amt)
+
+```
+
+The summary of the multiple linear regression model shows that several predictors, such as Travel Time (TRAVTIME) and previous Motor Vehicle Record Points (MVR_PTS_log), have statistically significant coefficients. This suggests that these variables, along with certain socio-demographic factors, are closely correlated with the target amount. Essentially, they play a crucial role in accurately predicting the outcome of the model.
+
+Next, we will utilize a stepwise model to automatically identify the most influential predictors for the target amount variable. This iterative method continuously adds or removes predictors based on their level of significance, aiming to achieve the best-fit model possible.
+```{r}
+stepwise_regression <- function(data, response_var, predictor_vars) {
+  # Forward stepwise selection
+  step_model <- step(lm(as.formula(paste(response_var, "~ .")), data = data), direction = "both")
+  return(step_model)
+}
+
+
+stepwise_model <- stepwise_regression(train_data, "TARGET_AMT", selected_variables)
+
+summary(stepwise_model)
+
+```
+
+After running a stepwise model to predict crash costs (TARGET_AMT), the analysis reveals several interesting findings. It appears that the occurrence of a crash (TARGET_FLAG) significantly increases crash costs, with a coefficient estimate of 5929.75. Surprisingly, having a revoked license in the past seven years (REVOKEDYes) is associated with a significant decrease in crash costs, with a coefficient estimate of -445.29. However, variables such as gender (SEXM), the value of the car (BLUEBOOK), and certain job categories (JOBProfessional and JOB.1) do not show a significant effect on crash costs. It's worth noting that the adjusted R-squared value is 0.2862, indicating that the predictors, including variables like MVR_PTS (motor vehicle record points) and BLUEBOOK_orderNorm (transformed blue book value), explain approximately 28.62% of the variation in crash costs. Overall, this model provides valuable insights into the factors influencing crash costs, although there are some variables that require further investigation to better understand their impact.
+
+
+Now, we'll compare the predictive performance of our manually selected and stepwise regression models by calculating their RMSE values. This comparison will help us decide which model is better suited for accurately predicting target amounts.
+```{r}
+# Predict target amounts for the test dataset using the manually selected model
+manual_predicted <- predict(manual_model_amt, newdata = test_data)
+
+# Predict target amounts for the test dataset using the stepwise regression model
+stepwise_predicted <- predict(stepwise_model, newdata = test_data)
+
+# Calculate RMSE for the manually selected model
+manual_rmse <- sqrt(mean((test_data$TARGET_AMT - manual_predicted)^2))
+
+# Calculate RMSE for the stepwise regression model
+stepwise_rmse <- sqrt(mean((test_data$TARGET_AMT - stepwise_predicted)^2))
+
+cat("RMSE for manually selected model:", manual_rmse, "\n")
+cat("RMSE for stepwise regression model:", stepwise_rmse, "\n")
+
+```
+
+The RMSE values show how closely the predictions of the stepwise regression model match the actual target amounts compared to the manually selected model. With an RMSE of 3565.341, the stepwise regression model has a lower error margin than the manually selected model, which has an RMSE of 4127.205. This suggests that the stepwise regression model is more accurate in predicting target amounts on the test dataset.
+
